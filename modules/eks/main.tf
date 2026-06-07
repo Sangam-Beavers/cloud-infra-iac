@@ -1,0 +1,242 @@
+# ---------------------------------------------------------------------------
+# 클러스터 IAM 역할
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "cluster" {
+  name = "${var.name}-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "eks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cluster" {
+  for_each = toset([
+    "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
+    "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController",
+  ])
+
+  role       = aws_iam_role.cluster.name
+  policy_arn = each.value
+}
+
+# ---------------------------------------------------------------------------
+# EKS 클러스터
+# ---------------------------------------------------------------------------
+
+# 컨트롤플레인 감사 로그 그룹 — EKS가 만드는 기본 이름 규칙(/aws/eks/<cluster>/cluster)을
+# 그대로 쓰되 CMK 암호화·보관 기간을 우리가 관리
+resource "aws_cloudwatch_log_group" "eks" {
+  name              = "/aws/eks/${var.name}/cluster"
+  retention_in_days = var.log_retention_in_days
+  kms_key_id        = var.kms_key_arn
+
+  tags = {
+    Name = "${var.name}-logs"
+  }
+}
+
+resource "aws_eks_cluster" "this" {
+  name     = var.name
+  role_arn = aws_iam_role.cluster.arn
+  version  = var.cluster_version
+
+  # api/audit/authenticator 감사 로그를 CloudWatch로 (인증 실패·권한 변경 추적)
+  enabled_cluster_log_types = ["api", "audit", "authenticator"]
+
+  vpc_config {
+    subnet_ids              = var.subnet_ids
+    endpoint_private_access = true
+    endpoint_public_access  = var.endpoint_public_access
+    public_access_cidrs     = var.endpoint_public_access ? var.endpoint_public_access_cidrs : null
+  }
+
+  access_config {
+    authentication_mode                         = "API"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
+  # Kubernetes Secrets 봉투 암호화 (환경 CMK)
+  encryption_config {
+    resources = ["secrets"]
+    provider {
+      key_arn = var.kms_key_arn
+    }
+  }
+
+  # 로그 그룹을 먼저 만들어 EKS가 자체 생성하지 않도록 (암호화/보관 정책 우리가 소유)
+  depends_on = [
+    aws_iam_role_policy_attachment.cluster,
+    aws_cloudwatch_log_group.eks,
+  ]
+
+  tags = {
+    Name = var.name
+  }
+}
+
+# private 엔드포인트 접근 허용 — EKS가 만드는 클러스터 SG는 기본적으로
+# 클러스터/노드 간 트래픽만 허용하므로, 점프 호스트(mgmt) 등의 443 접근은 명시 필요
+resource "aws_security_group_rule" "api_ingress" {
+  count = length(var.api_allowed_cidrs) > 0 ? 1 : 0
+
+  type              = "ingress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = var.api_allowed_cidrs
+  security_group_id = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+  description       = "kubectl via jump host (mgmt subnets)"
+}
+
+# ---------------------------------------------------------------------------
+# IRSA용 OIDC 프로바이더 (External Secrets, LB Controller 등에서 사용)
+# ---------------------------------------------------------------------------
+
+data "tls_certificate" "oidc" {
+  url = aws_eks_cluster.this.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "this" {
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.oidc.certificates[0].sha1_fingerprint]
+  url             = aws_eks_cluster.this.identity[0].oidc[0].issuer
+
+  tags = {
+    Name = "${var.name}-oidc"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 노드 IAM 역할 + 관리형 노드 그룹
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "node" {
+  name = "${var.name}-node-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "node" {
+  for_each = toset([
+    "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
+    "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+    "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+    "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore", # 노드 디버깅용 SSM 접속
+  ])
+
+  role       = aws_iam_role.node.name
+  policy_arn = each.value
+}
+
+# 노드 EC2/볼륨에 Name 태그를 붙이기 위한 시작 템플릿
+# (관리형 노드 그룹은 자체 태그를 인스턴스로 전파하지 않음)
+resource "aws_launch_template" "node" {
+  name_prefix = "${var.name}-node-"
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size = var.disk_size
+      volume_type = "gp3"
+      encrypted   = true
+    }
+  }
+
+  # IMDSv2 강제 (hop limit 2: 파드에서 노드 메타데이터 접근 허용)
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = merge(
+      { Name = "${var.name}-node" },
+      var.instance_extra_tags
+    )
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags = merge(
+      { Name = "${var.name}-node" },
+      var.instance_extra_tags
+    )
+  }
+}
+
+resource "aws_eks_node_group" "this" {
+  cluster_name    = aws_eks_cluster.this.name
+  node_group_name = "${var.name}-default"
+  node_role_arn   = aws_iam_role.node.arn
+  subnet_ids      = var.subnet_ids
+
+  instance_types = var.instance_types
+  ami_type       = var.ami_type
+  capacity_type  = "ON_DEMAND"
+
+  # disk_size는 시작 템플릿(block_device_mappings)으로 이동 (LT와 동시 지정 불가)
+  launch_template {
+    id      = aws_launch_template.node.id
+    version = aws_launch_template.node.latest_version
+  }
+
+  scaling_config {
+    desired_size = var.desired_size
+    min_size     = var.min_size
+    max_size     = var.max_size
+  }
+
+  update_config {
+    max_unavailable = 1
+  }
+
+  # Cluster Autoscaler/Karpenter 도입 시 아래 lifecycle을 복원할 것
+  # (오토스케일러가 바꾼 desired_size를 Terraform이 되돌리지 않도록)
+  # lifecycle {
+  #   ignore_changes = [scaling_config[0].desired_size]
+  # }
+
+  # 네트워킹 애드온(vpc-cni 등)이 먼저 구성된 뒤 노드가 부트스트랩되도록 보장
+  depends_on = [
+    aws_iam_role_policy_attachment.node,
+    aws_eks_addon.this,
+  ]
+
+  tags = {
+    Name = "${var.name}-default"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 애드온 (coredns는 노드가 있어야 기동되므로 노드 그룹 이후)
+# ---------------------------------------------------------------------------
+
+resource "aws_eks_addon" "this" {
+  for_each = toset(["vpc-cni", "kube-proxy", "eks-pod-identity-agent"])
+
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = each.value
+  resolve_conflicts_on_update = "OVERWRITE"
+}
+
+resource "aws_eks_addon" "coredns" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "coredns"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [aws_eks_node_group.this]
+}
