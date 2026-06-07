@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# ElastiCache(Valkey) 복제 그룹에 AUTH 토큰을 설정하고
+# Secrets Manager(sb/{env}/redis/auth)에 저장한다.
+#
+# AWS API만 사용하므로 로컬에서 실행 가능 (DB 부트스트랩과 달리 VPC 접근 불필요).
+# ROTATE → SET 2단계: 무중단으로 토큰을 추가한 뒤 새 토큰만 허용하도록 고정.
+#
+# 사용법: ./bootstrap-redis.sh <env> <replication_group_id> [profile]
+# 예시:   ./bootstrap-redis.sh prod sb-prod-redis
+# KMS_KEY_ARN 환경변수를 주면 생성되는 비밀을 해당 CMK로 암호화한다.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+if [ $# -lt 2 ]; then
+  grep '^# ' "$0" | head -12
+  exit 1
+fi
+
+ENV=$1
+RG_ID=$2
+PROFILE=${3:-woori-fisa-1k}
+SECRET_NAME="sb/${ENV}/redis/auth"
+
+TOKEN=$(aws secretsmanager get-random-password --exclude-punctuation \
+  --password-length 48 --query RandomPassword --output text --profile "$PROFILE")
+
+# 토큰을 CLI 인자로 주면 ps/셸 히스토리에 노출되므로 임시 파일(--cli-input-json)로 전달
+TMPJSON=$(mktemp); chmod 600 "$TMPJSON"
+trap 'rm -f "$TMPJSON"' EXIT
+
+modify_auth() { # $1 = ROTATE | SET
+  jq -n --arg rg "$RG_ID" --arg t "$TOKEN" --arg s "$1" \
+    '{ReplicationGroupId:$rg, AuthToken:$t, AuthTokenUpdateStrategy:$s, ApplyImmediately:true}' > "$TMPJSON"
+  aws elasticache modify-replication-group --cli-input-json "file://$TMPJSON" --profile "$PROFILE" > /dev/null
+  aws elasticache wait replication-group-available --replication-group-id "$RG_ID" --profile "$PROFILE"
+}
+
+# AUTH가 없는 신규 그룹이면 SET만, 이미 있으면 ROTATE→SET 2단계(무중단 회전)
+HAS_AUTH=$(aws elasticache describe-replication-groups --replication-group-id "$RG_ID" \
+  --query "ReplicationGroups[0].AuthTokenEnabled" --output text --profile "$PROFILE")
+
+if [ "$HAS_AUTH" = "True" ]; then
+  echo "1/3 AUTH 토큰 추가 (ROTATE — 기존 연결 유지)..."; modify_auth ROTATE
+  echo "2/3 새 토큰만 허용 (SET)...";                    modify_auth SET
+else
+  echo "1/3 AUTH 토큰 최초 설정 (SET)...";               modify_auth SET
+fi
+
+echo "3/3 Secrets Manager 저장..."
+PRIMARY=$(aws elasticache describe-replication-groups --replication-group-id "$RG_ID" \
+  --query "ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address" --output text --profile "$PROFILE")
+READER=$(aws elasticache describe-replication-groups --replication-group-id "$RG_ID" \
+  --query "ReplicationGroups[0].NodeGroups[0].ReaderEndpoint.Address" --output text --profile "$PROFILE")
+
+SECRET_JSON="{\"auth_token\":\"${TOKEN}\",\"primary_host\":\"${PRIMARY}\",\"reader_host\":\"${READER}\",\"port\":6379,\"tls\":true}"
+
+# upsert: 이미 존재하면 새 버전으로 갱신 (재실행/재배포 충돌 제거)
+aws secretsmanager create-secret --name "$SECRET_NAME" \
+  ${KMS_KEY_ARN:+--kms-key-id "$KMS_KEY_ARN"} \
+  --secret-string "$SECRET_JSON" --query ARN --output text --profile "$PROFILE" 2>/dev/null ||
+  aws secretsmanager put-secret-value --secret-id "$SECRET_NAME" \
+    --secret-string "$SECRET_JSON" --query ARN --output text --profile "$PROFILE"
+
+echo "✔ ${RG_ID}: AUTH 설정 + ${SECRET_NAME} 저장 완료"
