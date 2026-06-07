@@ -34,7 +34,7 @@ variable "vpc_config" {
 variable "kms_config" {
   description = "KMS 결정값"
   type = object({
-    deletion_window_in_days = number # 키 삭제 예약 시 취소 가능 대기 기간(일), AWS 허용 범위 7~30
+    deletion_window_in_days = number # 키 삭제 예약 시 취소 가능 대기 기간 (일), AWS 허용 범위 7~30
   })
 }
 

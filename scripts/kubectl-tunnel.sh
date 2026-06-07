@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # private-only EKS API에 점프 호스트 SSM 포트포워딩으로 kubectl 터널을 연다.
 #
-# 동작: 점프호스트(mgmt, SSM Online)를 Name 태그로 자동 조회한 뒤
+# 동작: 점프호스트 (mgmt, SSM Online)를 Name 태그로 자동 조회한 뒤
 #   localhost:<port> → 점프호스트 → EKS private 엔드포인트:443 포워딩 세션 시작.
 # 세션이 떠 있는 동안 별도 터미널에서 kubectl 사용 (Ctrl+C로 종료).
 #

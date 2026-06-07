@@ -51,7 +51,7 @@ resource "aws_vpc_endpoint" "ssm" {
 }
 
 # ---------------------------------------------------------------------------
-# 점프 호스트 IAM — SSM 접속 + DB 부트스트랩(Secrets Manager/KMS) 권한
+# 점프 호스트 IAM — SSM 접속 + DB 부트스트랩 (Secrets Manager/KMS) 권한
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "this" {

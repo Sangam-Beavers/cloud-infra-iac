@@ -187,7 +187,7 @@ resource "aws_nat_gateway" "this" {
   }
 
   # NAT 게이트웨이는 IGW가 VPC에 연결된 뒤에만 생성 가능하나, 코드상
-  # 참조(EIP/subnet)에는 IGW가 없어 TF가 순서를 추론 못 함 — 명시 필요
+  # 참조 (EIP/subnet)에는 IGW가 없어 TF가 순서를 추론 못 함 — 명시 필요
   depends_on = [aws_internet_gateway.this]
 }
 
@@ -262,7 +262,7 @@ resource "aws_route" "private_nat" {
   )
 
   lifecycle {
-    # per_az에서 private AZ에 대응하는 public(NAT) AZ가 없으면 다른 AZ NAT로
+    # per_az에서 private AZ에 대응하는 public (NAT) AZ가 없으면 다른 AZ NAT로
     # 조용히 fallback되어 격리가 깨진다 — 명시적으로 실패시킴
     precondition {
       condition     = var.nat_gateway_strategy != "per_az" || contains(local.public_azs, each.key)

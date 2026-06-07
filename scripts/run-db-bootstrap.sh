@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# 로컬에서 실행: terraform output(엔드포인트/마스터비밀/CMK)을 읽어
+# 로컬에서 실행: terraform output (엔드포인트/마스터비밀/CMK)을 읽어
 # SSM send-command로 "점프 호스트에서" 클러스터별 논리 DB + 서비스 계정 생성과
-# Secrets Manager 저장(sb/{env}/{service}/db)을 원격 실행한다.
+# Secrets Manager 저장 (sb/{env}/{service}/db)을 원격 실행한다.
 #
-# 멱등: 재실행 시 비밀번호를 새로 발급해 DB 계정(ALTER USER)과 비밀을 함께 갱신.
-# 점프 호스트 ID는 Name 태그(sb-{env}-jump)로 자동 조회한다.
+# 멱등: 재실행 시 비밀번호를 새로 발급해 DB 계정 (ALTER USER)과 비밀을 함께 갱신.
+# 점프 호스트 ID는 Name 태그 (sb-{env}-jump)로 자동 조회한다.
 #
 # 사용법: ./run-db-bootstrap.sh <env-dir> <env-short> [jump-instance-id] [profile]
 # 예시:   ./run-db-bootstrap.sh environments/production prod

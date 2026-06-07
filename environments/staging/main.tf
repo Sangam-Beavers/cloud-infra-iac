@@ -47,7 +47,7 @@ module "vpc" {
   private_subnet_extra_tags = { "kubernetes.io/role/internal-elb" = "1" }
 }
 
-# Valkey(Redis 호환) — 세션/토큰 저장소, prod와 동일 구조 (규모만 축소)
+# Valkey (Redis 호환) — 세션/토큰 저장소, prod와 동일 구조 (규모만 축소)
 # AUTH 토큰은 생성 후 scripts/bootstrap-redis.sh로 설정 (Secrets Manager 저장)
 module "redis" {
   source = "../../modules/elasticache"
@@ -57,7 +57,7 @@ module "redis" {
   subnet_ids  = values(module.vpc.db_subnet_ids)
   kms_key_arn = module.kms.key_arn
 
-  # private(EKS) + mgmt(점프 호스트)에서만 접근 가능
+  # private (EKS) + mgmt (점프 호스트)에서만 접근 가능
   allowed_cidrs = concat(values(var.network.private), values(var.network.mgmt))
 
   node_type          = var.redis_config.node_type
@@ -85,7 +85,7 @@ module "jumphost" {
   # S3 엔드포인트 준비 전 부팅은 user_data의 dnf 재시도 루프가 흡수한다.
 }
 
-# 사이트-투-사이트 WireGuard + FRR(BGP) 라우터 — 온프렘 pfSense(active/standby) 연결
+# 사이트-투-사이트 WireGuard + FRR (BGP) 라우터 — 온프렘 pfSense (active/standby) 연결
 # 키는 `make vpn-keys-stage`로 SSM 등록 후 apply할 것 (user_data가 부팅 시 fetch)
 module "vpn" {
   source = "../../modules/vpn"
@@ -117,11 +117,11 @@ module "eks" {
   subnet_ids  = values(module.vpc.private_subnet_ids)
   kms_key_arn = module.kms.key_arn
 
-  # Graviton(ARM64) 노드면 컨테이너 이미지는 arm64로 빌드 필요
+  # Graviton (ARM64) 노드면 컨테이너 이미지는 arm64로 빌드 필요
   instance_types = var.eks_config.instance_types
   desired_size   = var.eks_config.desired_size
 
-  # private-only API + 점프호스트(mgmt)에서의 kubectl 접근 허용
+  # private-only API + 점프호스트 (mgmt)에서의 kubectl 접근 허용
   endpoint_public_access = var.eks_config.endpoint_public_access
   api_allowed_cidrs      = values(var.network.mgmt)
 
@@ -157,7 +157,7 @@ module "aurora" {
   kms_key_arn = module.kms.key_arn
   databases   = each.value
 
-  # private(EKS) + mgmt(점프 호스트)에서만 접근 가능
+  # private (EKS) + mgmt (점프 호스트)에서만 접근 가능
   allowed_cidrs = concat(values(var.network.private), values(var.network.mgmt))
 
   instance_count          = var.aurora_config.instance_count

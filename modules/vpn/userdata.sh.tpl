@@ -7,7 +7,7 @@
 # =============================================================================
 # -u: 미정의 변수 즉시 실패, pipefail: 파이프 상류 실패 포착.
 # -e는 쓰지 않는다 — apt/sed 등 의도적으로 실패를 허용하는 줄이 많고, 핵심 명령은
-# retry 헬퍼와 ssm_get_required(빈값 가드)로 개별 보호한다.
+# retry 헬퍼와 ssm_get_required (빈값 가드)로 개별 보호한다.
 set -uo pipefail
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
@@ -34,7 +34,7 @@ retry 5 apt-get update -y
 apt-get upgrade -y
 retry 5 apt-get install -y wireguard frr frr-pythontools iproute2 iptables conntrack curl unzip
 
-# AWS CLI v2 — Ubuntu 24.04(noble)에는 awscli apt 패키지가 없음 (검증 당시 22.04와의 차이)
+# AWS CLI v2 — Ubuntu 24.04 (noble)에는 awscli apt 패키지가 없음 (검증 당시 22.04와의 차이)
 # awscli가 깨지면 이후 모든 aws 호출이 실패하므로 설치 실패 시 부팅 중단
 if ! command -v aws > /dev/null 2>&1; then
   ARCH=$(uname -m)
@@ -48,7 +48,7 @@ fi
 modprobe nf_conntrack || true
 echo "nf_conntrack" > /etc/modules-load.d/conntrack.conf
 
-# 참고: frr.conf의 정적 경로(ip route)는 staticd가 처리하지만, noble의 FRR 패키징은
+# 참고: frr.conf의 정적 경로 (ip route)는 staticd가 처리하지만, noble의 FRR 패키징은
 # watchfrr/zebra/staticd를 항상 기동하므로 별도 활성화가 불필요 (daemons 파일 주석 참조)
 sed -i 's/^bgpd=no/bgpd=yes/'   /etc/frr/daemons
 sed -i 's/^zebra=no/zebra=yes/' /etc/frr/daemons
@@ -107,7 +107,7 @@ EOF
 ssm_get() { aws ssm get-parameter --name "$1" --with-decryption --region "$REGION" --query Parameter.Value --output text; }
 
 # 빈 값이 conf에 들어가면 터널이 조용히 죽으므로, retry로 받고 비어있으면 부팅 실패시킴.
-# retry 90회(약 15분): up-all이 apply 완료 후 vpn-keys로 키를 등록할 때까지 첫 부팅이 대기
+# retry 90회 (약 15분): up-all이 apply 완료 후 vpn-keys로 키를 등록할 때까지 첫 부팅이 대기
 # → 별도 재기동 없이 멱등하게 기동
 ssm_get_required() {
   local val

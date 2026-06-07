@@ -7,7 +7,7 @@ resource "aws_kms_key" "this" {
   deletion_window_in_days = var.deletion_window_in_days
   enable_key_rotation     = true # 연 1회 자동 키 로테이션
 
-  # 기본 정책(root 전체) + CloudWatch Logs 서비스의 사용 위임
+  # 기본 정책 (root 전체) + CloudWatch Logs 서비스의 사용 위임
   # (EKS 컨트롤플레인 로그 그룹을 이 CMK로 암호화하려면 키 정책 위임이 필수)
   policy = jsonencode({
     Version = "2012-10-17"

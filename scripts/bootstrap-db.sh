@@ -3,14 +3,14 @@
 # Aurora 클러스터에 서비스별 논리 DB + 전용 계정을 만들고,
 # 자격증명을 Secrets Manager에 저장한다 (sb/{env}/{service}/db).
 #
-# 멱등: 재실행 시 비밀번호를 새로 발급해 DB 계정(ALTER USER)과 비밀을 함께 갱신.
+# 멱등: 재실행 시 비밀번호를 새로 발급해 DB 계정 (ALTER USER)과 비밀을 함께 갱신.
 # ⚠️ DB 서브넷은 격리되어 있으므로, 클러스터에 네트워크로 도달 가능한
-#    호스트(예: mgmt 점프 호스트, SSM 세션)에서 실행할 것.
+#    호스트 (예: mgmt 점프 호스트, SSM 세션)에서 실행할 것.
 # 필요: aws cli, mysql client, jq + Secrets Manager/KMS IAM 권한
 #
 # 사용법:
 #   ./bootstrap-db.sh <env> <endpoint> <master_secret_arn> <svc1> [svc2 ...]
-# 값은 terraform output(aurora_endpoints, aurora_master_secret_arns)에서 확인.
+# 값은 terraform output (aurora_endpoints, aurora_master_secret_arns)에서 확인.
 # KMS_KEY_ARN 환경변수를 주면 신규 생성되는 비밀을 해당 CMK로 암호화한다.
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -36,7 +36,7 @@ for SVC in "${SERVICES[@]}"; do
 
   # 논리 DB + 자기 DB만 보이는 전용 계정 (GRANT가 MSA 데이터 소유권을 강제)
   # ALTER USER로 매 실행 비밀번호를 재설정해 비밀과 DB 상태를 항상 일치시킴
-  # 비밀번호는 인자(-p) 대신 MYSQL_PWD 환경변수로 전달 (ps 노출 방지)
+  # 비밀번호는 인자 (-p) 대신 MYSQL_PWD 환경변수로 전달 (ps 노출 방지)
   MYSQL_PWD="$MASTER_PW" mysql -h "$ENDPOINT" -u admin <<SQL
 CREATE DATABASE IF NOT EXISTS svc_${SVC} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${SVC}_svc'@'%';

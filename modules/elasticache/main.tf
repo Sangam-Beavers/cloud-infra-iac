@@ -34,7 +34,7 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_elasticache_parameter_group" "this" {
-  # 패밀리 변경(엔진 메이저 업그레이드) 시 이름이 함께 바뀌어야 교체 가능
+  # 패밀리 변경 (엔진 메이저 업그레이드) 시 이름이 함께 바뀌어야 교체 가능
   name        = "${var.name}-${var.parameter_group_family}"
   family      = var.parameter_group_family
   description = "Eviction policy for session/token workload"
@@ -65,7 +65,7 @@ resource "aws_elasticache_replication_group" "this" {
   automatic_failover_enabled = var.node_count > 1
   multi_az_enabled           = var.node_count > 1
 
-  # 암호화: 저장(CMK) + 전송(TLS).
+  # 암호화: 저장 (CMK) + 전송 (TLS).
   # AUTH 토큰은 scripts/bootstrap-redis.sh로 설정 — Terraform state에 남기지 않음
   at_rest_encryption_enabled = true
   kms_key_id                 = var.kms_key_arn

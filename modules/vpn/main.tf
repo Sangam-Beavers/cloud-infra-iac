@@ -64,7 +64,7 @@ resource "aws_security_group" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# IAM — SSM 접속 + 셀프힐링(EIP/RT 조작) + WG 키 조회
+# IAM — SSM 접속 + 셀프힐링 (EIP/RT 조작) + WG 키 조회
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "this" {
@@ -93,7 +93,7 @@ resource "aws_iam_role_policy" "self_healing" {
     Version = "2012-10-17"
     Statement = [
       {
-        # 가장 위험한 액션(라우트 변경 = 트래픽 하이재킹)은 우리 return 라우트 테이블로만 제한
+        # 가장 위험한 액션 (라우트 변경 = 트래픽 하이재킹)은 우리 return 라우트 테이블로만 제한
         Sid    = "ManageReturnRoutes"
         Effect = "Allow"
         Action = ["ec2:ReplaceRoute", "ec2:CreateRoute"]

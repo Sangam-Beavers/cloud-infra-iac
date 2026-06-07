@@ -1,4 +1,4 @@
-# 현재는 로컬 상태(terraform.tfstate)를 사용합니다.
+# 현재는 로컬 상태 (terraform.tfstate)를 사용합니다.
 # 팀 협업 또는 CI/CD 도입 시 아래 S3 백엔드 설정의 주석을 해제하고 사용하세요.
 #
 # terraform {

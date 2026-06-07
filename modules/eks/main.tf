@@ -29,7 +29,7 @@ resource "aws_iam_role_policy_attachment" "cluster" {
 # EKS 클러스터
 # ---------------------------------------------------------------------------
 
-# 컨트롤플레인 감사 로그 그룹 — EKS가 만드는 기본 이름 규칙(/aws/eks/<cluster>/cluster)을
+# 컨트롤플레인 감사 로그 그룹 — EKS가 만드는 기본 이름 규칙 (/aws/eks/<cluster>/cluster)을
 # 그대로 쓰되 CMK 암호화·보관 기간을 우리가 관리
 resource "aws_cloudwatch_log_group" "eks" {
   name              = "/aws/eks/${var.name}/cluster"
@@ -81,7 +81,7 @@ resource "aws_eks_cluster" "this" {
 }
 
 # private 엔드포인트 접근 허용 — EKS가 만드는 클러스터 SG는 기본적으로
-# 클러스터/노드 간 트래픽만 허용하므로, 점프 호스트(mgmt) 등의 443 접근은 명시 필요
+# 클러스터/노드 간 트래픽만 허용하므로, 점프 호스트 (mgmt) 등의 443 접근은 명시 필요
 resource "aws_security_group_rule" "api_ingress" {
   count = length(var.api_allowed_cidrs) > 0 ? 1 : 0
 
@@ -188,7 +188,7 @@ resource "aws_eks_node_group" "this" {
   ami_type       = var.ami_type
   capacity_type  = "ON_DEMAND"
 
-  # disk_size는 시작 템플릿(block_device_mappings)으로 이동 (LT와 동시 지정 불가)
+  # disk_size는 시작 템플릿 (block_device_mappings)으로 이동 (LT와 동시 지정 불가)
   launch_template {
     id      = aws_launch_template.node.id
     version = aws_launch_template.node.latest_version
@@ -210,7 +210,7 @@ resource "aws_eks_node_group" "this" {
   #   ignore_changes = [scaling_config[0].desired_size]
   # }
 
-  # 네트워킹 애드온(vpc-cni 등)이 먼저 구성된 뒤 노드가 부트스트랩되도록 보장
+  # 네트워킹 애드온 (vpc-cni 등)이 먼저 구성된 뒤 노드가 부트스트랩되도록 보장
   depends_on = [
     aws_iam_role_policy_attachment.node,
     aws_eks_addon.this,

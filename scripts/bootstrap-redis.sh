@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# ElastiCache(Valkey) 복제 그룹에 AUTH 토큰을 설정하고
-# Secrets Manager(sb/{env}/redis/auth)에 저장한다.
+# ElastiCache (Valkey) 복제 그룹에 AUTH 토큰을 설정하고
+# Secrets Manager (sb/{env}/redis/auth)에 저장한다.
 #
 # AWS API만 사용하므로 로컬에서 실행 가능 (DB 부트스트랩과 달리 VPC 접근 불필요).
 # ROTATE → SET 2단계: 무중단으로 토큰을 추가한 뒤 새 토큰만 허용하도록 고정.
@@ -25,7 +25,7 @@ SECRET_NAME="sb/${ENV}/redis/auth"
 TOKEN=$(aws secretsmanager get-random-password --exclude-punctuation \
   --password-length 48 --query RandomPassword --output text --profile "$PROFILE")
 
-# 토큰을 CLI 인자로 주면 ps/셸 히스토리에 노출되므로 임시 파일(--cli-input-json)로 전달
+# 토큰을 CLI 인자로 주면 ps/셸 히스토리에 노출되므로 임시 파일 (--cli-input-json)로 전달
 TMPJSON=$(mktemp); chmod 600 "$TMPJSON"
 trap 'rm -f "$TMPJSON"' EXIT
 
@@ -36,7 +36,7 @@ modify_auth() { # $1 = ROTATE | SET
   aws elasticache wait replication-group-available --replication-group-id "$RG_ID" --profile "$PROFILE"
 }
 
-# AUTH가 없는 신규 그룹이면 SET만, 이미 있으면 ROTATE→SET 2단계(무중단 회전)
+# AUTH가 없는 신규 그룹이면 SET만, 이미 있으면 ROTATE→SET 2단계 (무중단 회전)
 HAS_AUTH=$(aws elasticache describe-replication-groups --replication-group-id "$RG_ID" \
   --query "ReplicationGroups[0].AuthTokenEnabled" --output text --profile "$PROFILE")
 
