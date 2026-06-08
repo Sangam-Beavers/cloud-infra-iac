@@ -27,3 +27,13 @@ output "node_role_arn" {
   description = "노드 IAM 역할 ARN"
   value       = aws_iam_role.node.arn
 }
+
+output "alb_controller_role_arn" {
+  description = "AWS Load Balancer Controller IRSA 역할 ARN"
+  value       = aws_iam_role.alb_controller.arn
+}
+
+output "eso_role_arn" {
+  description = "External Secrets Operator IRSA 역할 ARN"
+  value       = aws_iam_role.eso.arn
+}

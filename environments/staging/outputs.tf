@@ -77,3 +77,13 @@ output "redis_reader_endpoint" {
   description = "Valkey reader(읽기) 엔드포인트"
   value       = module.redis.reader_endpoint
 }
+
+output "alb_controller_role_arn" {
+  description = "ALB Controller IRSA 역할 ARN"
+  value       = module.eks.alb_controller_role_arn
+}
+
+output "eso_role_arn" {
+  description = "External Secrets Operator IRSA 역할 ARN"
+  value       = module.eks.eso_role_arn
+}

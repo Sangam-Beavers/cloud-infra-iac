@@ -46,6 +46,12 @@ resource "aws_eks_cluster" "this" {
   role_arn = aws_iam_role.cluster.arn
   version  = var.cluster_version
 
+  # bootstrap_self_managed_addons는 기본값 (true) 을 유지한다 — EKS가 클러스터 생성 시
+  # 기본 self-managed vpc-cni/kube-proxy/coredns를 깐다. cni="cilium"이어도 이 기본 CNI가
+  # 노드를 Ready로 만들어 apply가 무인으로 완료된다 (private-only API라 Terraform은 클러스터에
+  # 접근해 Cilium을 깔 수 없다). apply 후 install-k8s-stack.sh가 점프호스트 터널로 vpc-cni를
+  # Cilium으로 교체한다. false로 두면 노드가 NotReady라 매니지드 노드그룹 생성이 데드락된다.
+
   # api/audit/authenticator 감사 로그를 CloudWatch로 (인증 실패·권한 변경 추적)
   enabled_cluster_log_types = ["api", "audit", "authenticator"]
 
@@ -210,7 +216,9 @@ resource "aws_eks_node_group" "this" {
   #   ignore_changes = [scaling_config[0].desired_size]
   # }
 
-  # 네트워킹 애드온 (vpc-cni 등)이 먼저 구성된 뒤 노드가 부트스트랩되도록 보장
+  # 노드 부트스트랩 전 IAM 권한 + (vpc-cni 모드면) 네트워킹 애드온이 준비되도록 보장.
+  # cni = "cilium"이면 이 의존성은 pod-identity-agent만 보장하고, CNI는 apply 이후
+  # Helm (Cilium) 으로 설치된다 — 그린필드에선 Cilium 설치 전까지 노드가 NotReady다.
   depends_on = [
     aws_iam_role_policy_attachment.node,
     aws_eks_addon.this,
@@ -222,20 +230,30 @@ resource "aws_eks_node_group" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# 애드온 (coredns는 노드가 있어야 기동되므로 노드 그룹 이후)
+# 애드온 (coredns는 노드가 있어야 기동되므로 노드 그룹 이후).
+# cni = "cilium"이면 vpc-cni/kube-proxy를 Terraform 관리 애드온으로 채택하지 않는다.
+#   단, bootstrap_self_managed_addons=true라 EKS가 기본 self-managed vpc-cni/kube-proxy를
+#   깔아 노드를 Ready로 만든다 → apply 완료 후 install-k8s-stack.sh가 그 둘을 지우고 Cilium 설치.
+# coredns는 cni와 무관하게 Terraform이 관리한다 (기본 vpc-cni 위에서 정상 기동).
 # ---------------------------------------------------------------------------
 
+locals {
+  eks_addons = var.cni == "cilium" ? ["eks-pod-identity-agent"] : ["vpc-cni", "kube-proxy", "eks-pod-identity-agent"]
+}
+
 resource "aws_eks_addon" "this" {
-  for_each = toset(["vpc-cni", "kube-proxy", "eks-pod-identity-agent"])
+  for_each = toset(local.eks_addons)
 
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = each.value
+  resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 }
 
 resource "aws_eks_addon" "coredns" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "coredns"
+  resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
   depends_on = [aws_eks_node_group.this]

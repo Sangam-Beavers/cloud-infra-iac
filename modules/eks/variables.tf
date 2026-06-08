@@ -37,6 +37,17 @@ variable "endpoint_public_access_cidrs" {
   default     = []
 }
 
+variable "cni" {
+  description = "CNI 선택: vpc-cni(EKS 기본) 또는 cilium(vpc-cni/kube-proxy 제거 후 Helm 설치)"
+  type        = string
+  default     = "vpc-cni"
+
+  validation {
+    condition     = contains(["vpc-cni", "cilium"], var.cni)
+    error_message = "cni는 vpc-cni 또는 cilium 이어야 합니다."
+  }
+}
+
 variable "log_retention_in_days" {
   description = "컨트롤플레인 감사 로그 보관 일수"
   type        = number
@@ -79,4 +90,10 @@ variable "min_size" {
 variable "max_size" {
   description = "노드 최대 수"
   type        = number
+}
+
+variable "eso_secret_prefix" {
+  description = "External Secrets가 읽을 Secrets Manager 비밀 접두사 (환경 격리, 예: sb/stage/)"
+  type        = string
+  default     = "sb/"
 }

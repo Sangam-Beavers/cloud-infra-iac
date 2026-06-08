@@ -121,6 +121,12 @@ module "eks" {
   subnet_ids  = values(module.vpc.private_subnet_ids)
   kms_key_arn = module.kms.key_arn
 
+  # CNI는 Cilium (개발 스택과 동일) — vpc-cni/kube-proxy 제외 후 Helm 설치
+  cni = "cilium"
+
+  # ESO는 이 환경 비밀(sb/prod/*)만 읽도록 IRSA 제한
+  eso_secret_prefix = "sb/prod/"
+
   # Graviton (ARM64) 노드면 컨테이너 이미지는 arm64로 빌드 필요
   instance_types = var.eks_config.instance_types
   desired_size   = var.eks_config.desired_size
