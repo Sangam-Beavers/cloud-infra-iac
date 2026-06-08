@@ -15,8 +15,8 @@ set -euo pipefail
 ENV_DIR=$1
 ENV=$2
 INSTANCE=${3:-}
-PROFILE=${4:-woori-fisa-1k}
-REGION=ap-northeast-2
+PROFILE="${4:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
+REGION="${REGION:-ap-northeast-2}"
 
 cd "$(dirname "$0")/../$ENV_DIR"
 KMS=$(terraform output -raw kms_key_arn)

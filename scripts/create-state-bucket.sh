@@ -1,53 +1,48 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Terraform S3 백엔드용 state 버킷을 생성한다 (Terraform 밖 — 닭-달걀 회피).
-# versioning + 암호화(SSE-S3) + public 차단 + HTTPS 강제까지 설정.
+# Terraform S3 백엔드 버킷을 "발견 또는 생성"하고, 그 이름을 캐시 파일에 기록한다.
+# Makefile은 이 캐시(secrets/.state-bucket-<profile>)를 읽어 STATE_BUCKET으로 쓴다.
+# → 사용자는 버킷명을 정할 필요가 없다 (PROFILE만 바꾸면 계정별로 자동).
 #
-# ⚠️ 조직에 단 한 번만 실행한다. state 버킷은 영속 리소스이며,
-#    재배포(down-all/up-all)나 협업 시에는 절대 새로 만들지 않는다.
-#    이미 backend.tf에 버킷이 박혀 있으면 'terraform init' 으로 연결만 하면 된다.
-#    새로 만들면 state가 분산되어 인프라를 추적할 수 없게 된다.
+#   · 계정에 global-bridge-tfstate* 버킷이 이미 있으면 그걸 재사용 (마이그레이션 불필요).
+#   · 없으면 global-bridge-tfstate-<계정ID> 로 생성 (전역 유일·결정론적, 하드코딩 아님).
+# versioning + 암호화(SSE-S3) + public 차단 + HTTPS 강제. 멱등 — 있으면 생성 skip.
 #
-# 생성 후 출력된 버킷명을 각 스택 backend.tf의 bucket 값에 넣고
-# 주석을 해제한 뒤 `terraform init -migrate-state` 로 전환한다.
-#
-# 사용법: ./create-state-bucket.sh [profile]
+# 사용법: PROFILE=<계정> ./create-state-bucket.sh   (보통 make state-bucket / up-all이 자동 호출)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-PROFILE=${1:-woori-fisa-1k}
-REGION=ap-northeast-2
+PROFILE="${1:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
+REGION="${REGION:-ap-northeast-2}"
+CACHE="secrets/.state-bucket-${PROFILE}"
 
-# 이미 state 버킷이 있으면 중복 생성을 막는다 (사용자 우려: 누구나 또 만들면 안 됨)
-EXISTING=$(aws s3api list-buckets --profile "$PROFILE" \
-  --query "Buckets[?starts_with(Name,'global-bridge-tfstate')].Name" --output text)
-if [ -n "$EXISTING" ]; then
-  echo "⚠️  이미 state 버킷이 존재합니다: $EXISTING"
-  echo "    재배포/협업 시에는 새로 만들지 마세요 — backend.tf에 이 버킷을 쓰고 'terraform init' 만 하면 됩니다."
-  printf "    그래도 새 버킷을 만들려면 CREATE 입력: "
-  read -r ans; [ "$ans" = "CREATE" ] || { echo "취소됨."; exit 1; }
+# 1) 계정 내 기존 state 버킷 발견 (있으면 재사용)
+BUCKET=$(aws s3api list-buckets --profile "$PROFILE" \
+  --query "Buckets[?starts_with(Name,'global-bridge-tfstate')].Name | [0]" --output text 2>/dev/null || true)
+
+if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
+  echo "✔ 기존 state 버킷 발견: $BUCKET (재사용)"
+else
+  # 2) 없으면 계정ID 기반으로 생성 (전역 유일)
+  ACCOUNT=$(aws sts get-caller-identity --profile "$PROFILE" --query Account --output text)
+  BUCKET="global-bridge-tfstate-${ACCOUNT}"
+  echo "state 버킷 생성: $BUCKET ($REGION)"
+
+  aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
+    --create-bucket-configuration LocationConstraint="$REGION" --profile "$PROFILE" >/dev/null
+  aws s3api put-bucket-versioning --bucket "$BUCKET" \
+    --versioning-configuration Status=Enabled --profile "$PROFILE"
+  aws s3api put-bucket-encryption --bucket "$BUCKET" --profile "$PROFILE" \
+    --server-side-encryption-configuration \
+    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}'
+  aws s3api put-public-access-block --bucket "$BUCKET" --profile "$PROFILE" \
+    --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+  aws s3api put-bucket-policy --bucket "$BUCKET" --profile "$PROFILE" --policy \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::${BUCKET}\",\"arn:aws:s3:::${BUCKET}/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}]}"
+  echo "✔ state 버킷 생성 완료: $BUCKET"
 fi
 
-SUFFIX=$(openssl rand -hex 3)
-BUCKET="global-bridge-tfstate-${SUFFIX}"
-
-aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
-  --create-bucket-configuration LocationConstraint="$REGION" \
-  --profile "$PROFILE" > /dev/null
-
-aws s3api put-bucket-versioning --bucket "$BUCKET" \
-  --versioning-configuration Status=Enabled --profile "$PROFILE"
-
-aws s3api put-bucket-encryption --bucket "$BUCKET" --profile "$PROFILE" \
-  --server-side-encryption-configuration \
-  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}'
-
-aws s3api put-public-access-block --bucket "$BUCKET" --profile "$PROFILE" \
-  --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-aws s3api put-bucket-policy --bucket "$BUCKET" --profile "$PROFILE" --policy \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::${BUCKET}\",\"arn:aws:s3:::${BUCKET}/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}]}"
-
-echo "✔ state 버킷 생성: ${BUCKET}"
-echo "  → 각 스택 backend.tf의 bucket 값을 이 이름으로 바꾸고 주석 해제 후 'terraform init -migrate-state'"
+# 3) 이름을 캐시에 기록 (make의 STATE_BUCKET이 이 파일을 읽음). secrets/* 는 gitignore.
+mkdir -p secrets
+printf '%s\n' "$BUCKET" > "$CACHE"

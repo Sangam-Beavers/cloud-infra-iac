@@ -13,8 +13,8 @@
 set -euo pipefail
 
 ENV=${1:?usage: register-vpn-keys.sh <prod|stage> [profile]}
-PROFILE=${2:-woori-fisa-1k}
-REGION=ap-northeast-2
+PROFILE="${2:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
+REGION="${REGION:-ap-northeast-2}"
 cd "$(dirname "$0")/.."
 
 case "$ENV" in

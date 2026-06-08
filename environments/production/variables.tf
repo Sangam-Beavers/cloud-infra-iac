@@ -16,9 +16,13 @@ variable "aws_region" {
 }
 
 variable "aws_profile" {
-  description = "사용할 AWS CLI 프로필 (~/.aws/config 기준)"
+  description = "AWS CLI 프로필 = 배포 대상 계정. make의 TF_VAR_aws_profile로 주입 (default 없음 — 미설정 시 에러로 개인계정 폴백 차단)"
   type        = string
-  default     = "woori-fisa-1k"
+}
+
+variable "state_bucket" {
+  description = "remote_state(application)를 읽을 S3 백엔드 버킷. make의 TF_VAR_state_bucket로 주입"
+  type        = string
 }
 
 # --- 자원 사양/결정값 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---

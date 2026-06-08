@@ -15,8 +15,8 @@ set -euo pipefail
 
 ENV=${1:?usage: install-k8s-stack.sh <prod|stage> [phase] [profile]}
 PHASE=${2:-all}
-PROFILE=${3:-woori-fisa-1k}
-REGION=ap-northeast-2
+PROFILE="${3:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
+REGION="${REGION:-ap-northeast-2}"
 PORT=18443
 cd "$(dirname "$0")/.."
 

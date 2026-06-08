@@ -19,7 +19,7 @@ fi
 
 ENV=$1
 RG_ID=$2
-PROFILE=${3:-woori-fisa-1k}
+PROFILE="${3:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
 SECRET_NAME="sb/${ENV}/redis/auth"
 
 TOKEN=$(aws secretsmanager get-random-password --exclude-punctuation \

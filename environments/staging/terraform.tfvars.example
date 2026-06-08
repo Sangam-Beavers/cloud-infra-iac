@@ -14,8 +14,8 @@
 
 project     = "global-bridge"  # 그대로 둠 (태그·네이밍 접두사).
 environment = "staging"        # 그대로 둠 (application 스택 ARN 조회 키).
-aws_region  = "ap-northeast-2" # 그대로 둠 (서울).
-aws_profile = "<AWS_PROFILE>"  # 채울 것: ~/.aws/config 의 프로필 이름 (예: woori-fisa-1k).
+aws_region = "ap-northeast-2" # 그대로 둠 (서울).
+# aws_profile / state_bucket은 여기 두지 않는다 — Makefile의 PROFILE/STATE_BUCKET이 주입 (계정 전환은 make 한 곳).
 
 # --- 자원 사양/결정값 ---
 # nat_gateway_strategy: none | single (비용 절감, staging 권장) | per_az (HA).

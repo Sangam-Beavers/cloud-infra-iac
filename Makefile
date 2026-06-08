@@ -1,10 +1,15 @@
 # ---------------------------------------------------------------------------
 # global-bridge 인프라 운영 명령 모음 — `make help`로 타겟 확인
 #
+# ── 계정 전환은 PROFILE 한 줄만 (또는 make PROFILE=..) ── REGION은 tfvars의 aws_region과 같게 유지.
+#   STATE_BUCKET은 자동이다 (state-bucket이 계정의 버킷을 발견·생성→캐시, make가 읽음). 파일 수정 없이 끝난다.
+#   PROFILE 미설정 시 terraform이 에러 (개인계정 폴백 차단).
+#
 # ── `make up-all` 이 자동 수행하는 전 과정 (수동으로 할 땐 이 순서 그대로) ──
 #   0. (선행) environments/*/terraform.tfvars 준비 (example 참고)
 #      + secrets/wg.{prod,stg}.env WG 키 파일 배치
-#   1. cd application && terraform init && terraform apply
+#      + (계정 전환만) PROFILE을 새 계정으로 — up-all이 make state-bucket으로 버킷 발견·생성 (멱등)
+#   1. make state-bucket → cd application && terraform init && terraform apply
 #        # myApplications 앱 — 환경이 remote state로 ARN을 읽으므로 반드시 먼저
 #   2. cd environments/production && terraform init && terraform apply
 #      cd environments/staging    && terraform init && terraform apply
@@ -25,14 +30,38 @@
 #   3. application terraform destroy
 #   4. SSM /sb/* 파라미터 삭제          # 완전 제로 — VPN 키 원본은 로컬 secrets/ 에 보존
 # ---------------------------------------------------------------------------
+# ── 계정 전환은 PROFILE 한 줄만 (또는 make PROFILE=..) ──
+#   PROFILE = ~/.aws/config 프로필 = 배포 대상 계정 (default 없음 → 미설정 시 terraform 에러로 개인계정 폴백 차단)
+#   REGION  = 리전 (tfvars의 aws_region과 같게 유지)
+# 주의: 값 줄에 인라인 주석 금지 — Make는 # 앞 공백을 값에 포함한다 (프로필명 오염).
 PROFILE ?= woori-fisa-1k
 REGION  ?= ap-northeast-2
+
+# STATE_BUCKET은 사용자가 정하지 않는다. create-state-bucket.sh가 계정의 기존 버킷을 발견(or 생성)해
+# 캐시(secrets/.state-bucket-<profile>)에 기록하고, make는 그 캐시를 읽는다 (cat — aws 호출 없음).
+# up-all/state-bucket이 캐시를 채우므로, 처음/계정전환 시엔 그게 먼저 돌아야 한다.
+STATE_BUCKET = $(shell cat secrets/.state-bucket-$(PROFILE) 2>/dev/null)
+
+# terraform provider/remote_state는 TF_VAR_로 자동 주입. REGION은 tfvars의 aws_region이 소스라
+# export하지 않고(우선순위), 백엔드 region만 -backend-config로 맞춘다. PROFILE/REGION은 스크립트가 env로 상속.
+# TF_VAR_state_bucket은 캐시를 늦게 읽도록 재귀(=) — state-bucket이 채운 뒤 init이 읽는다.
+export TF_VAR_aws_profile  := $(PROFILE)
+export TF_VAR_state_bucket  = $(STATE_BUCKET)
+export PROFILE
+export REGION
+
+# backend 블록은 변수를 못 쓰므로 init 때 -backend-config로 주입한다 (key는 각 backend.tf).
+# -reconfigure: 계정/버킷을 바꿔 init하면 새 백엔드를 가리킨다 (state 이전 아님 — 새 계정은 빈 상태).
+TF_INIT := terraform init -input=false -reconfigure \
+  -backend-config=bucket=$(STATE_BUCKET) \
+  -backend-config=region=$(REGION) \
+  -backend-config=profile=$(PROFILE)
 
 PROD  := environments/production
 STAGE := environments/staging
 
 .DEFAULT_GOAL := help
-.PHONY: help fmt validate init plan-app apply-app plan-prod apply-prod destroy-prod \
+.PHONY: help fmt validate state-bucket init plan-app apply-app plan-prod apply-prod destroy-prod \
         plan-stage apply-stage destroy-stage bootstrap-prod bootstrap-stage clean-secrets \
         vpn-keys-prod vpn-keys-stage vpn-restart vpn-eip kubectl-tunnel-prod kubectl-tunnel-stage \
         k8s-stack-prod k8s-stack-stage up-all down-all
@@ -49,39 +78,42 @@ validate: ## 3개 스택 (application/prod/stage) validate
 	cd $(PROD) && terraform validate
 	cd $(STAGE) && terraform validate
 
-init: ## 3개 스택 init
-	cd application && terraform init -input=false
-	cd $(PROD) && terraform init -input=false
-	cd $(STAGE) && terraform init -input=false
+state-bucket: ## state 버킷 발견·생성 후 캐시 기록 (멱등 — up-all이 자동 호출)
+	./scripts/create-state-bucket.sh
+
+init: ## 3개 스택 init (현재 PROFILE/STATE_BUCKET 백엔드로 — 계정 전환 후 1회)
+	cd application && $(TF_INIT)
+	cd $(PROD) && $(TF_INIT)
+	cd $(STAGE) && $(TF_INIT)
 
 # ---------- application (myApplications 앱 — 환경보다 먼저 1회) ----------
 plan-app: ## application 스택 plan
-	cd application && terraform plan
+	cd application && $(TF_INIT) >/dev/null && terraform plan
 
 apply-app: ## application 스택 apply
-	cd application && terraform apply
+	cd application && $(TF_INIT) >/dev/null && terraform apply
 
 # ---------- production ----------
 plan-prod: ## production plan
-	cd $(PROD) && terraform plan
+	cd $(PROD) && $(TF_INIT) >/dev/null && terraform plan
 
 apply-prod: ## production apply
-	cd $(PROD) && terraform apply
+	cd $(PROD) && $(TF_INIT) >/dev/null && terraform apply
 
 destroy-prod: ## production 전체 삭제 (확인 입력 필요)
 	@printf "⚠️  production 전체를 삭제합니다. 계속하려면 'prod' 입력: " && read ans && [ "$$ans" = "prod" ]
-	cd $(PROD) && terraform destroy
+	cd $(PROD) && $(TF_INIT) >/dev/null && terraform destroy
 
 # ---------- staging ----------
 plan-stage: ## staging plan
-	cd $(STAGE) && terraform plan
+	cd $(STAGE) && $(TF_INIT) >/dev/null && terraform plan
 
 apply-stage: ## staging apply
-	cd $(STAGE) && terraform apply
+	cd $(STAGE) && $(TF_INIT) >/dev/null && terraform apply
 
 destroy-stage: ## staging 전체 삭제 (확인 입력 필요)
 	@printf "⚠️  staging 전체를 삭제합니다. 계속하려면 'stage' 입력: " && read ans && [ "$$ans" = "stage" ]
-	cd $(STAGE) && terraform destroy
+	cd $(STAGE) && $(TF_INIT) >/dev/null && terraform destroy
 
 # ---------- 부트스트랩 (apply 완료 후 실행) ----------
 bootstrap-prod: ## prod: Redis AUTH 설정 + 논리 DB/계정/비밀 생성
@@ -126,10 +158,11 @@ vpn-eip: ## VPN 라우터 EIP를 secrets/eip.env에 기록 (pfSense Endpoint 설
 # ---------- 전체 생성/삭제 한 줄 명령 (CONFIRM 타이핑 필요) ----------
 up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부트스트랩→VPN 키/재기동 (~55분)
 	@printf "전체 인프라를 생성합니다 (약 55분, NAT/EKS/Aurora 과금 시작). 로컬에 helm/kubectl 필요. 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
-	cd application && terraform init -input=false > /dev/null && terraform apply -input=false -auto-approve
+	$(MAKE) state-bucket # 백엔드 버킷 보장 (멱등 — 새 계정이면 생성, 있으면 skip)
+	cd application && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve
 	@echo "--- production / staging 병렬 apply (로그: /tmp/up-*.log) ---"
-	@( cd $(PROD) && terraform init -input=false > /dev/null && terraform apply -input=false -auto-approve > /tmp/up-prod.log 2>&1 && echo "[prod] apply 완료" || { echo "[prod] 실패 — /tmp/up-prod.log 확인"; exit 1; } ) & \
-	( cd $(STAGE) && terraform init -input=false > /dev/null && terraform apply -input=false -auto-approve > /tmp/up-stage.log 2>&1 && echo "[stage] apply 완료" || { echo "[stage] 실패 — /tmp/up-stage.log 확인"; exit 1; } ) & \
+	@( cd $(PROD) && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve > /tmp/up-prod.log 2>&1 && echo "[prod] apply 완료" || { echo "[prod] 실패 — /tmp/up-prod.log 확인"; exit 1; } ) & \
+	( cd $(STAGE) && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve > /tmp/up-stage.log 2>&1 && echo "[stage] apply 완료" || { echo "[stage] 실패 — /tmp/up-stage.log 확인"; exit 1; } ) & \
 	wait
 	@echo "--- k8s 스택 설치 (Cilium→ALB→ESO) — cni=cilium이라 apply 직후 CNI 공백을 곧바로 닫는다. SSM 터널 포트 공유로 prod→stage 직렬 ---"
 	$(MAKE) k8s-stack-prod PHASE=all
@@ -143,16 +176,17 @@ up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부
 
 down-all: ## 전체 인프라 삭제: 비밀 정리→환경 병렬 destroy→application (복구 불가)
 	@printf "⚠️  전체 인프라를 삭제합니다 (복구 불가, CMK 삭제 대기 진입). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
+	$(MAKE) state-bucket # 백엔드 버킷 캐시 보장 (destroy가 state를 찾으려면 필요)
 	@for s in $$(aws secretsmanager list-secrets --profile $(PROFILE) --region $(REGION) \
 	  --query "SecretList[?starts_with(Name,'sb/')].Name" --output text); do \
 	  aws secretsmanager delete-secret --secret-id "$$s" --force-delete-without-recovery \
 	    --profile $(PROFILE) --region $(REGION) --query Name --output text; \
 	done
 	@echo "--- production / staging 병렬 destroy (로그: /tmp/down-*.log) ---"
-	@( cd $(PROD) && terraform destroy -input=false -auto-approve > /tmp/down-prod.log 2>&1 && echo "[prod] destroy 완료" || { echo "[prod] 실패 — /tmp/down-prod.log 확인"; exit 1; } ) & \
-	( cd $(STAGE) && terraform destroy -input=false -auto-approve > /tmp/down-stage.log 2>&1 && echo "[stage] destroy 완료" || { echo "[stage] 실패 — /tmp/down-stage.log 확인"; exit 1; } ) & \
+	@( cd $(PROD) && $(TF_INIT) > /dev/null 2>&1 && terraform destroy -input=false -auto-approve > /tmp/down-prod.log 2>&1 && echo "[prod] destroy 완료" || { echo "[prod] 실패 — /tmp/down-prod.log 확인"; exit 1; } ) & \
+	( cd $(STAGE) && $(TF_INIT) > /dev/null 2>&1 && terraform destroy -input=false -auto-approve > /tmp/down-stage.log 2>&1 && echo "[stage] destroy 완료" || { echo "[stage] 실패 — /tmp/down-stage.log 확인"; exit 1; } ) & \
 	wait
-	cd application && terraform destroy -input=false -auto-approve
+	cd application && $(TF_INIT) > /dev/null && terraform destroy -input=false -auto-approve
 	@echo "--- SSM 파라미터(/sb/*) 정리 ---"
 	-@for p in $$(aws ssm get-parameters-by-path --path /sb --recursive --profile $(PROFILE) --region $(REGION) \
 	  --query "Parameters[].Name" --output text); do \

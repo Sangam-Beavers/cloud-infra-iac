@@ -3,10 +3,10 @@ data "terraform_remote_state" "application" {
   backend = "s3"
 
   config = {
-    bucket  = "global-bridge-tfstate-396c9b"
+    bucket  = var.state_bucket
     key     = "application/terraform.tfstate"
-    region  = "ap-northeast-2"
-    profile = "woori-fisa-1k"
+    region  = var.aws_region
+    profile = var.aws_profile
   }
 }
 

@@ -17,8 +17,8 @@ set -euo pipefail
 
 ENV=${1:?usage: kubectl-tunnel.sh <prod|stage> [local_port] [profile]}
 PORT=${2:-8443}
-PROFILE=${3:-woori-fisa-1k}
-REGION=ap-northeast-2
+PROFILE="${3:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
+REGION="${REGION:-ap-northeast-2}"
 cd "$(dirname "$0")/.."
 
 case "$ENV" in
