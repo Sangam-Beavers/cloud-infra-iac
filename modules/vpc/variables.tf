@@ -66,8 +66,14 @@ variable "single_nat_az" {
   }
 }
 
+variable "enable_flow_logs" {
+  description = "VPC Flow Logs 활성화 여부 (count 기준 — 정적 값이어야 plan이 개수를 정할 수 있음)"
+  type        = bool
+  default     = false
+}
+
 variable "flow_log_kms_key_arn" {
-  description = "VPC Flow Logs를 보낼 CloudWatch 로그 그룹의 암호화 CMK ARN (null이면 Flow Logs 비활성)"
+  description = "VPC Flow Logs CloudWatch 로그 그룹의 암호화 CMK ARN (enable_flow_logs = true일 때 사용)"
   type        = string
   default     = null
 }

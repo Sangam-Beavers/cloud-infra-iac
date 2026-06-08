@@ -68,6 +68,12 @@ cp environments/staging/terraform.tfvars.example   environments/staging/terrafor
 # secrets/wg.prod.env, secrets/wg.stg.env  ← WG 키 파일 배치 (팀 비밀 채널로 수령)
 ```
 
+> *state 백엔드를 S3로 쓰려면(협업/CI 권장), 버킷을 Terraform 밖에서 먼저 만듭니다 — 단 **조직에 최초 1회만**입니다. backend.tf에 버킷이 이미 있으면 만들지 말고 `make init`으로 연결만 하세요. 자세한 전환·주의는 [5.4](#54-s3-백엔드-전환) 참고.*
+>
+> ```bash
+> ./scripts/create-state-bucket.sh    # (최초 1회) 버킷 생성·하드닝 후 버킷명 출력
+> ```
+
 ### 3.3. 전체 기동 (~40분)
 
 ```bash
@@ -109,6 +115,7 @@ VPN 상태는 라우터에서 `wg show`, `vtysh -c "show ip bgp summary"`로 확
 | `bootstrap-db.sh` | 점프호스트 | `run-db-bootstrap.sh`가 원격 실행하는 로직의 수동판입니다 (SSM 세션 디버깅용) |
 | `register-vpn-keys.sh` | 로컬 | `secrets/wg.{env}.env`의 키를 SSM SecureString (환경 CMK 암호화)으로 등록합니다 |
 | `kubectl-tunnel.sh` | 로컬 | 점프호스트 SSM 포트포워딩으로 EKS API 터널을 열고, kubeconfig (`tls-server-name`) 설정 방법을 안내합니다 |
+| `create-state-bucket.sh` | 로컬 | S3 백엔드용 state 버킷을 생성합니다 (versioning·SSE-S3 암호화·public 차단·HTTPS 강제). Terraform 밖에서 1회 실행 — [5.4](#54-s3-백엔드-전환) 참고 |
 
 모든 부트스트랩은 멱등입니다 — 재실행하면 비밀번호가 재발급되고 DB 계정 (`ALTER USER`)과 비밀이 함께 갱신되어 항상 일치합니다.
 
@@ -133,6 +140,28 @@ make up-all
 ### 5.3. NAT AZ 장애 복구 (Single 전략 환경)
 
 tfvars의 `vpc_config.single_nat_az`를 다른 public AZ로 바꿔 apply하면 NAT가 재배치됩니다 (복구 약 5분). per_az 전략 환경은 AZ별로 NAT가 분산되어 있어 복구 절차가 필요 없습니다.
+
+### 5.4. S3 백엔드 전환
+
+로컬 state는 단일 작업자 전용입니다. 협업/CI를 위해 state를 S3로 옮깁니다. state 버킷은 Terraform이 관리하지 않습니다 (버킷을 만들 state를 둘 곳이 없는 닭-달걀 회피).
+
+> ⚠️ **버킷 생성은 조직에 단 한 번뿐입니다.** state 버킷은 영속 리소스라 `down-all`도 지우지 않습니다.
+> backend.tf에 버킷이 이미 박혀 있으면 — 재배포·협업·CI 어느 경우든 — **새로 만들지 말고 `terraform init`으로 연결만** 하세요.
+> 버킷을 또 만들면 state가 분산되어 인프라를 추적할 수 없게 됩니다 (스크립트가 기존 버킷을 감지해 막아줍니다).
+
+**최초 1회 (전환하는 사람만):**
+
+```bash
+./scripts/create-state-bucket.sh           # 버킷 생성, 출력된 이름을 메모
+# 각 스택 backend.tf의 bucket 값을 그 이름으로 바꾸고 주석을 해제 → 커밋
+for d in application environments/production environments/staging; do
+  (cd $d && terraform init -migrate-state)  # 로컬 → S3로 state 이관 (yes 입력)
+done
+```
+
+**그 이후 (모든 협업자·재배포):** backend.tf가 커밋되어 있으므로 버킷 생성도 수동 입력도 없습니다 — `terraform init`(또는 `make init`) 한 번이면 S3 state에 연결됩니다.
+
+전환 후에는 클론만으로 어디서든 같은 state를 공유합니다 (3개 스택은 같은 버킷 안에서 key로 구분: `application/`·`production/`·`staging/`). 버킷은 versioning으로 state 이력을 보존하고, 잠금은 S3 네이티브 락(`use_lockfile`)으로 처리합니다.
 
 ## 6. 아키텍처 정책
 
@@ -175,7 +204,7 @@ EKS 컨트롤플레인 감사 로그 (api, audit, authenticator)와 VPC Flow Log
 - [ ] state를 S3 백엔드로 전환 (`backend.tf` 주석 참고)
 - [ ] AWS Budgets 알림 설정 (크레딧 소진 추적)
 
-### 7.2. 리포 public 전환 전
+### 7.2. Repo public 전환 전
 
 - [x] 전 히스토리 비밀/식별자 스캔 — 계정 ID/ARN/비밀 클린 (orphan 재작성으로 옛 커밋 잔재 제거)
 - [x] 계정 ID/ARN 하드코딩 금지 — 코드는 `data.aws_caller_identity` 동적 참조

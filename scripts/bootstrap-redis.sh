@@ -36,16 +36,10 @@ modify_auth() { # $1 = ROTATE | SET
   aws elasticache wait replication-group-available --replication-group-id "$RG_ID" --profile "$PROFILE"
 }
 
-# AUTH가 없는 신규 그룹이면 SET만, 이미 있으면 ROTATE→SET 2단계 (무중단 회전)
-HAS_AUTH=$(aws elasticache describe-replication-groups --replication-group-id "$RG_ID" \
-  --query "ReplicationGroups[0].AuthTokenEnabled" --output text --profile "$PROFILE")
-
-if [ "$HAS_AUTH" = "True" ]; then
-  echo "1/3 AUTH 토큰 추가 (ROTATE — 기존 연결 유지)..."; modify_auth ROTATE
-  echo "2/3 새 토큰만 허용 (SET)...";                    modify_auth SET
-else
-  echo "1/3 AUTH 토큰 최초 설정 (SET)...";               modify_auth SET
-fi
+# ROTATE = 토큰 추가 (신규 그룹의 첫 토큰도 ROTATE로 추가), SET = 추가된 토큰만 허용하도록 고정.
+# 신규/기존 모두 ROTATE→SET 순서로 동작한다 (SET을 먼저 하면 "no token to SET" 실패).
+echo "1/2 AUTH 토큰 추가 (ROTATE)..."; modify_auth ROTATE
+echo "2/2 새 토큰만 허용 (SET)...";    modify_auth SET
 
 echo "3/3 Secrets Manager 저장..."
 PRIMARY=$(aws elasticache describe-replication-groups --replication-group-id "$RG_ID" \

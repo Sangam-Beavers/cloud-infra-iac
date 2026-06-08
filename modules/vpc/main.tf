@@ -34,11 +34,12 @@ resource "aws_internet_gateway" "this" {
 
 # ---------------------------------------------------------------------------
 # VPC Flow Logs → CloudWatch (CMK 암호화) — 네트워크 트래픽 감사/포렌식
-# flow_log_kms_key_arn이 null이면 비활성
+# enable_flow_logs(정적 bool)로 켜고 끔. count는 apply 시점에야 정해지는
+# kms_key_arn에 의존하면 안 되므로(plan이 개수 추론 불가) 별도 bool로 분리한다.
 # ---------------------------------------------------------------------------
 
 locals {
-  flow_logs_enabled = var.flow_log_kms_key_arn != null
+  flow_logs_enabled = var.enable_flow_logs
 }
 
 resource "aws_cloudwatch_log_group" "flow" {

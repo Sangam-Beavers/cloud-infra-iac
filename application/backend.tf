@@ -2,7 +2,7 @@
 terraform {
   backend "s3" {
     bucket       = "global-bridge-tfstate-396c9b"
-    key          = "staging/terraform.tfstate"
+    key          = "application/terraform.tfstate"
     region       = "ap-northeast-2"
     profile      = "woori-fisa-1k"
     encrypt      = true

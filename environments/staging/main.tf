@@ -1,9 +1,12 @@
 # myApplications 앱 ARN — application/ 스택이 먼저 apply되어 있어야 함 (README 참고)
 data "terraform_remote_state" "application" {
-  backend = "local"
+  backend = "s3"
 
   config = {
-    path = "../../application/terraform.tfstate"
+    bucket  = "global-bridge-tfstate-396c9b"
+    key     = "application/terraform.tfstate"
+    region  = "ap-northeast-2"
+    profile = "woori-fisa-1k"
   }
 }
 
@@ -37,6 +40,7 @@ module "vpc" {
   mgmt_subnets    = var.network.mgmt
 
   # VPC Flow Logs를 환경 CMK로 암호화해 활성화
+  enable_flow_logs     = true
   flow_log_kms_key_arn = module.kms.key_arn
 
   nat_gateway_strategy = var.vpc_config.nat_gateway_strategy
