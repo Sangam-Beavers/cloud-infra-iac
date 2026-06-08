@@ -77,6 +77,19 @@ variable "aurora_config" {
   })
 }
 
+variable "api_gateway_config" {
+  description = "API Gateway origin 사양 — services: 서비스명 → 경로/포트/헬스체크/우선순위, waf_rate_limit: IP당 5분 상한"
+  type = object({
+    waf_rate_limit = optional(number, 2000)
+    services = map(object({
+      path_prefix       = string
+      port              = number
+      health_check_path = optional(string, "/healthz")
+      priority          = number
+    }))
+  })
+}
+
 # --- 네트워크 설계 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
 
 variable "network" {

@@ -87,3 +87,23 @@ output "eso_role_arn" {
   description = "External Secrets Operator IRSA 역할 ARN"
   value       = module.eks.eso_role_arn
 }
+
+output "api_origin_url" {
+  description = "다음 단계 CloudFront에 등록할 origin URL (HTTP API)"
+  value       = module.api_gateway.api_origin_url
+}
+
+output "api_target_group_arns" {
+  description = "서비스 → Target Group ARN (TargetGroupBinding 작성용)"
+  value       = module.api_gateway.target_group_arns
+}
+
+output "api_alb_security_group_id" {
+  description = "내부 ALB SG (TargetGroupBinding spec.networking source)"
+  value       = module.api_gateway.alb_security_group_id
+}
+
+output "api_origin_verify_ssm_param" {
+  description = "origin-verify 비밀 SSM 파라미터 (값 아님 — 엣지 스택이 읽음)"
+  value       = module.api_gateway.origin_verify_ssm_param
+}

@@ -149,6 +149,22 @@ module "kms" {
   deletion_window_in_days = var.kms_config.deletion_window_in_days
 }
 
+# 백엔드 진입점 — HTTP API → VPC Link → internal ALB → EKS 4서비스 (TargetGroupBinding).
+# CloudFront 우회 차단(origin-lock)은 ALB의 regional WAF. 엣지(CloudFront/Route53/ACM/S3)는
+# 같은 FISA 계정의 다음 단계 별도 스택에서 api_origin_url + origin-verify 시크릿을 소비.
+module "api_gateway" {
+  source = "../../modules/api-gateway"
+
+  name        = "sb-stage-api"
+  vpc_id      = module.vpc.vpc_id
+  subnet_ids  = values(module.vpc.private_subnet_ids)
+  kms_key_arn = module.kms.key_arn
+  ssm_prefix  = "/sb/stage/api-gateway"
+
+  services       = var.api_gateway_config.services
+  waf_rate_limit = var.api_gateway_config.waf_rate_limit
+}
+
 # ---------------------------------------------------------------------------
 # Aurora MySQL — blast radius 분리를 위해 2개 클러스터 (prod와 동일 구조)
 #   core:    wallet, member       (트랜잭션·핵심)
