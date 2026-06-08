@@ -61,9 +61,6 @@ Temporary Items
 crash.log
 crash.*.log
 
-# HCL lock files
-*.lock.hcl
-
 # Exclude all .tfvars files, which are likely to contain sensitive data, such as
 # password, private keys, and other secrets. These should not be part of version
 # control as they are data points which are potentially sensitive and subject
@@ -116,7 +113,9 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,windows,linux,terraform
-# 로컬 비밀/산출물 — secrets/ 디렉토리 전체 + 위치 무관 *.env (예제는 유지)
-secrets/
+# 로컬 비밀/산출물 (벨트 앤 서스펜더 — .gitignore는 인라인 주석 미지원, 주석은 별도 줄)
+# *.env: 위치 무관(루트·scripts 등). secrets/*: 확장자 무관 전부 차단. *.example 템플릿만 추적.
 *.env
 !*.env.example
+secrets/*
+!secrets/*.example

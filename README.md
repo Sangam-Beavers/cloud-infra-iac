@@ -201,7 +201,7 @@ EKS 컨트롤플레인 감사 로그 (api, audit, authenticator)와 VPC Flow Log
 - [ ] Aurora prod: `serverless_min_acu` 상향 검토 (현재 0.5 — 콜드 응답 지연 가능)
 - [x] EKS API private-only (`eks_config.endpoint_public_access = false`)
 - [x] EKS 노드: LT 태그 변경이 노드 롤링 교체를 유발함을 인지 (Name 태그는 고정값이라 평상시 롤링 없음 — 현상 유지)
-- [ ] state를 S3 백엔드로 전환 (`backend.tf` 주석 참고)
+- [x] state를 S3 백엔드로 전환 (버킷 `global-bridge-tfstate-*`, 네이티브 락 — 5.4 참고)
 - [ ] AWS Budgets 알림 설정 (크레딧 소진 추적)
 
 ### 7.2. Repo public 전환 전
