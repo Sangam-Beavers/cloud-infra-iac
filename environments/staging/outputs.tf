@@ -123,3 +123,8 @@ output "spa_bucket_name" {
   description = "SPA 정적 자산 S3 버킷 (aws s3 cp 로 업로드)"
   value       = module.edge.spa_bucket_name
 }
+
+output "edge_route53_name_servers" {
+  description = "엣지 커스텀 도메인 zone NS (도메인 지정 시) — 도메인 등록업체에 위임"
+  value       = module.edge.route53_name_servers
+}

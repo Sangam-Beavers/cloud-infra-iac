@@ -21,8 +21,8 @@
 #   5. make vpn-restart
 #        # 라우터 재기동으로 키 반영 (ASG 교체, EIP 유지)
 #   6. make vpn-eip
-#        # 고정 EIP를 secrets/eip.env 에 기록
-#   7. pfSense Peer Endpoint를 secrets/eip.env 의 EIP로 갱신
+#        # 고정 EIP를 secrets/.wireguard-eip 에 기록
+#   7. pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신
 #
 # ── `make down-all` 이 자동 수행하는 전 과정 ──
 #   1. Secrets Manager sb/* 강제 삭제   # destroy가 못 지우는 CLI 생성 비밀 (충돌/고아 방지)
@@ -42,11 +42,15 @@ REGION  ?= ap-northeast-2
 # up-all/state-bucket이 캐시를 채우므로, 처음/계정전환 시엔 그게 먼저 돌아야 한다.
 STATE_BUCKET = $(shell cat secrets/.state-bucket-$(PROFILE) 2>/dev/null)
 
+# 엣지 커스텀 도메인 (prod 전용) — secrets/domain.env의 GB_PROD_DOMAIN을 읽는다 (없으면 빈 값 → 기본 *.cloudfront.net).
+EDGE_DOMAIN = $(shell grep -E '^GB_PROD_DOMAIN=' secrets/domain.env 2>/dev/null | tail -1 | cut -d= -f2-)
+
 # terraform provider/remote_state는 TF_VAR_로 자동 주입. REGION은 tfvars의 aws_region이 소스라
 # export하지 않고(우선순위), 백엔드 region만 -backend-config로 맞춘다. PROFILE/REGION은 스크립트가 env로 상속.
 # TF_VAR_state_bucket은 캐시를 늦게 읽도록 재귀(=) — state-bucket이 채운 뒤 init이 읽는다.
 export TF_VAR_aws_profile  := $(PROFILE)
 export TF_VAR_state_bucket  = $(STATE_BUCKET)
+export TF_VAR_edge_domain   = $(EDGE_DOMAIN)
 export PROFILE
 export REGION
 
@@ -149,11 +153,11 @@ vpn-restart: ## VPN 라우터 재기동 (키 등록/변경 반영 — ASG가 새
 	  --query "Reservations[].Instances[].InstanceId" --output text); \
 	  [ -n "$$IDS" ] && aws ec2 terminate-instances --profile $(PROFILE) --region $(REGION) --instance-ids $$IDS --query "TerminatingInstances[].InstanceId" --output text || echo "(실행 중인 VPN 라우터 없음)"
 
-vpn-eip: ## VPN 라우터 EIP를 secrets/eip.env에 기록 (pfSense Endpoint 설정용)
+vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-eip에 기록 (pfSense Endpoint 설정용)
 	@mkdir -p secrets
-	@echo "PROD_VPN_EIP=$$(cd $(PROD) && terraform output -raw vpn_eip)" > secrets/eip.env
-	@echo "STAGE_VPN_EIP=$$(cd $(STAGE) && terraform output -raw vpn_eip)" >> secrets/eip.env
-	@cat secrets/eip.env
+	@echo "PROD_VPN_EIP=$$(cd $(PROD) && terraform output -raw vpn_eip)" > secrets/.wireguard-eip
+	@echo "STAGE_VPN_EIP=$$(cd $(STAGE) && terraform output -raw vpn_eip)" >> secrets/.wireguard-eip
+	@cat secrets/.wireguard-eip
 
 # ---------- 엣지 검증용 더미 (4서비스 echo + 테스트 프론트) — stage 전용, 실앱 아님 ----------
 # 엣지(CloudFront+S3+WAF) 자체는 environments/* 에 통합돼 apply-stage/apply-prod로 함께 생성/삭제된다.
@@ -180,7 +184,7 @@ up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부
 	$(MAKE) vpn-keys-prod vpn-keys-stage
 	$(MAKE) vpn-restart
 	$(MAKE) vpn-eip
-	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/eip.env 의 EIP로 갱신"
+	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신"
 
 down-all: ## 전체 인프라 삭제: 비밀 정리→환경 병렬 destroy→application (복구 불가)
 	@printf "⚠️  전체 인프라를 삭제합니다 (복구 불가, CMK 삭제 대기 진입). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]

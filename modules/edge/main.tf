@@ -4,6 +4,10 @@
 #   (X-Origin-Verify 헤더 주입으로 ALB regional WAF의 origin-lock 통과).
 # ---------------------------------------------------------------------------
 
+locals {
+  use_domain = var.domain != ""
+}
+
 # SPA 정적 자산 버킷 — 비공개. 버킷명은 전역 유일이어야 해 prefix로 AWS가 suffix를 붙인다
 resource "aws_s3_bucket" "spa" {
   bucket_prefix = "${var.name}-spa-"
@@ -156,6 +160,59 @@ resource "aws_wafv2_web_acl" "cf" {
   }
 }
 
+# ---------------------------------------------------------------------------
+# 커스텀 도메인 (domain 지정 시): Route53 zone + ACM 인증서 (apex + 와일드카드).
+# zone은 prevent_destroy로 보호 — 도메인 등록업체에 route53_name_servers를 1회 위임해야
+# ACM DNS 검증이 통과한다 (위임 전에는 검증이 대기).
+# ---------------------------------------------------------------------------
+resource "aws_route53_zone" "this" {
+  count = local.use_domain ? 1 : 0
+  name  = var.domain
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_acm_certificate" "this" {
+  count    = local.use_domain ? 1 : 0
+  provider = aws.us_east_1
+
+  domain_name               = var.domain
+  subject_alternative_names = ["*.${var.domain}"]
+  validation_method         = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# DNS 검증 레코드 (apex·와일드카드가 같은 레코드를 공유할 수 있어 allow_overwrite)
+resource "aws_route53_record" "cert_validation" {
+  for_each = local.use_domain ? {
+    for dvo in aws_acm_certificate.this[0].domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  } : {}
+
+  zone_id         = aws_route53_zone.this[0].zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "this" {
+  count    = local.use_domain ? 1 : 0
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.this[0].arn
+  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+}
+
 resource "aws_cloudfront_distribution" "this" {
   enabled             = true
   comment             = "${var.name} SPA"
@@ -232,9 +289,14 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
-  # 기본 *.cloudfront.net 인증서 (커스텀 도메인 사용 시 ACM 인증서로 교체)
+  aliases = local.use_domain ? [var.domain] : null
+
+  # domain 지정 시 ACM 인증서 (검증 완료분), 아니면 기본 *.cloudfront.net
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = local.use_domain ? null : true
+    acm_certificate_arn            = local.use_domain ? aws_acm_certificate_validation.this[0].certificate_arn : null
+    ssl_support_method             = local.use_domain ? "sni-only" : null
+    minimum_protocol_version       = local.use_domain ? "TLSv1.2_2021" : null
   }
 
   tags = {
@@ -260,4 +322,18 @@ resource "aws_s3_bucket_policy" "spa" {
       }
     }]
   })
+}
+
+# apex A 레코드 → CloudFront (domain 지정 시)
+resource "aws_route53_record" "alias" {
+  count   = local.use_domain ? 1 : 0
+  zone_id = aws_route53_zone.this[0].zone_id
+  name    = var.domain
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.this.domain_name
+    zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
+    evaluate_target_health = false
+  }
 }

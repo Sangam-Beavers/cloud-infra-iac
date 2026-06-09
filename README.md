@@ -79,7 +79,7 @@ cp environments/staging/terraform.tfvars.example   environments/staging/terrafor
 make up-all
 ```
 
-CONFIRM을 입력하면 다음 순서로 자동 진행되며, 완료 후 pfSense Peer Endpoint를 `secrets/eip.env`의 EIP로 설정하면 터널이 올라옵니다.
+CONFIRM을 입력하면 다음 순서로 자동 진행되며, 완료 후 pfSense Peer Endpoint를 `secrets/.wireguard-eip`의 EIP로 설정하면 터널이 올라옵니다.
 
 1. **application apply**: myApplications 앱을 먼저 만들어, 환경이 앱 ARN을 remote state로 읽을 수 있게 합니다.
 
@@ -113,12 +113,12 @@ aws ssm describe-instance-information --profile woori-fisa-1k --region ap-northe
 | `plan-*` / `apply-*` / `destroy-*` | 스택별 plan/apply/destroy (`app`·`prod`·`stage`) |
 | `bootstrap-{prod,stage}` | Redis AUTH + 논리 DB/서비스 계정/비밀 생성 (apply 후) |
 | `vpn-keys-{prod,stage}` | WG 키를 SSM에 등록 — apply 후에만 가능 (환경 CMK 필요) |
-| `vpn-restart` / `vpn-eip` | 라우터 재기동 (키 반영, EIP 유지) / EIP를 `secrets/eip.env`에 기록 |
+| `vpn-restart` / `vpn-eip` | 라우터 재기동 (키 반영, EIP 유지) / EIP를 `secrets/.wireguard-eip`에 기록 |
 | `kubectl-tunnel-{prod,stage}` | private-only EKS API로 kubectl 터널 (점프호스트 경유) |
 | `edge-test-{deploy,clean}-stage` | 엣지 검증용 더미 (4서비스 echo + 테스트 SPA) 배포 / 삭제 — stage 전용, 실앱 아님 |
 | `fmt` / `validate` / `init` | 코드 포맷 / 3스택 검증 / 3스택 초기화 |
 
-> *환경 apply (`apply-stage` / `apply-prod`)에는 **API Gateway origin과 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF)가 포함**됩니다 — 별도 스택이 아니라 환경 스택에 통합되어 있어, 환경을 올리면 엣지까지 함께 생성됩니다. 커스텀 도메인/ACM은 `terraform.tfvars`의 `edge_config.domain`으로 켭니다 (비우면 기본 `*.cloudfront.net`).*
+> *환경 apply (`apply-stage` / `apply-prod`)에는 **API Gateway origin과 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF)가 포함**됩니다 — 별도 스택이 아니라 환경 스택에 통합되어 있어, 환경을 올리면 엣지까지 함께 생성됩니다. prod 커스텀 도메인/ACM은 `secrets/domain.env`의 `GB_PROD_DOMAIN` (make가 주입)으로 켭니다 — 비우면 기본 `*.cloudfront.net`, stage는 항상 `*.cloudfront.net`.*
 
 스크립트는 Makefile이 호출하므로 직접 실행은 디버깅할 때만 필요합니다.
 

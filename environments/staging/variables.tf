@@ -94,16 +94,6 @@ variable "api_gateway_config" {
   })
 }
 
-variable "edge_config" {
-  description = "엣지(CloudFront+S3+WAF) 설정. domain: 커스텀 도메인(비우면 기본 *.cloudfront.net 인증서 — 5-b ACM/Route53용), price_class: CloudFront 가격등급, waf_rate_limit: IP당 5분 상한"
-  type = object({
-    domain         = optional(string, "")
-    price_class    = optional(string, "PriceClass_100")
-    waf_rate_limit = optional(number, 2000)
-  })
-  default = {}
-}
-
 # --- 네트워크 설계 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
 
 variable "network" {

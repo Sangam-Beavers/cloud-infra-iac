@@ -55,10 +55,7 @@ api_gateway_config = {
   }
 }
 
-# 엣지 (CloudFront + S3 + WAF). domain은 5-b(ACM/Route53)용 — 비우면 기본 *.cloudfront.net 인증서.
-edge_config = {
-  domain = "" # 예: stage.example.com (설정 시 5-b에서 ACM+Route53+CloudFront alias 활성화)
-}
+# 엣지: stage는 기본 *.cloudfront.net (커스텀 도메인은 prod 전용 — secrets/domain.env).
 
 # --- 네트워크 설계 (내부 IP 교통 정리표 기준으로 채울 것) ---
 # 내부 IP 교통 정리표를 그대로 옮긴다. vpc_cidr (/16) 안에 4계층 서브넷이 겹치지 않게.

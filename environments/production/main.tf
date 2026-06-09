@@ -166,7 +166,7 @@ module "api_gateway" {
 
 # ---------------------------------------------------------------------------
 # 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF). api_gateway 출력(오리진 URL·origin-verify
-# 비밀)을 같은 그래프에서 직접 참조한다. 도메인은 edge_config.domain (비우면 기본 인증서).
+# 비밀)을 같은 그래프에서 직접 참조한다. prod 도메인은 secrets/domain.env (GB_PROD_DOMAIN), stage는 기본 인증서.
 # ---------------------------------------------------------------------------
 # CLOUDFRONT scope WAF/ACM은 us-east-1 전용이라 별칭 provider를 둔다
 provider "aws" {
@@ -192,10 +192,8 @@ module "edge" {
     aws.us_east_1 = aws.us_east_1
   }
 
-  name           = "sb-prod-edge"
-  domain         = var.edge_config.domain
-  price_class    = var.edge_config.price_class
-  waf_rate_limit = var.edge_config.waf_rate_limit
+  name   = "sb-prod-edge"
+  domain = var.edge_domain
 
   api_origin = {
     domain_name          = trimsuffix(trimprefix(module.api_gateway.api_origin_url, "https://"), "/")
