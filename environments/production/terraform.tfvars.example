@@ -43,18 +43,23 @@ aurora_config = {
   # 운영 전환 시: deletion_protection = true, skip_final_snapshot = false (기본은 false / true)
 }
 
-# API Gateway origin: 4 백엔드 서비스를 내부 ALB 경로로 매핑.
-#   path_prefix = ALB 경로 룰 (CloudFront가 /api 접두사를 떼고 보내는 기준), port = Service targetPort,
-#   priority = 리스너 룰 우선순위 (서비스별 고유). SpringBoot면 health_check_path = /actuator/health.
-#   waf_rate_limit (선택, 기본 2000) 은 IP당 5분 윈도우 요청 상한.
+# API Gateway origin: 백엔드 서비스를 내부 ALB 경로로 매핑 (백엔드는 /api/v1 네이티브).
+#   path_patterns = ALB 경로 룰 리스트 (CloudFront가 /api/* 를 그대로 전달 — strip 없음). 서비스당 다중 가능.
+#   port = Service targetPort, priority = 리스너 룰 우선순위 (서비스별 고유, 낮을수록 먼저).
+#   health_check_path = SpringBoot actuator. waf_rate_limit (선택, 기본 2000) 은 IP당 5분 윈도우 요청 상한.
 api_gateway_config = {
   waf_rate_limit = 2000
   services = {
-    community = { path_prefix = "/community/*", port = 8080, health_check_path = "/actuator/health", priority = 10 }
-    document  = { path_prefix = "/document/*", port = 8080, health_check_path = "/actuator/health", priority = 20 }
-    wallet    = { path_prefix = "/wallet/*", port = 8080, health_check_path = "/actuator/health", priority = 30 }
-    member    = { path_prefix = "/member/*", port = 8080, health_check_path = "/actuator/health", priority = 40 }
+    member    = { path_patterns = ["/api/v1/auth/*", "/api/v1/members/*"], port = 8081, health_check_path = "/actuator/health", priority = 10 }
+    community = { path_patterns = ["/api/v1/community/*"], port = 8082, health_check_path = "/actuator/health", priority = 20 }
+    document  = { path_patterns = ["/api/v1/documents/*"], port = 8083, health_check_path = "/actuator/health", priority = 30 }
+    wallet    = { path_patterns = ["/api/v1/wallets/*", "/api/v1/accounts/*", "/api/v1/transfers/*", "/api/v1/exchanges/*"], port = 8084, health_check_path = "/actuator/health", priority = 40 }
   }
+}
+
+# 엣지 (CloudFront + S3 + WAF). domain은 5-b(ACM/Route53)용 — 비우면 기본 *.cloudfront.net 인증서.
+edge_config = {
+  domain = "" # 예: app.example.com (설정 시 5-b에서 ACM+Route53+CloudFront alias 활성화)
 }
 
 # --- 네트워크 설계 (내부 IP 교통 정리표 기준으로 채울 것) ---

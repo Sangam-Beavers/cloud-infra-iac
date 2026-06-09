@@ -1,5 +1,5 @@
 output "api_origin_url" {
-  description = "HTTP API invoke URL — 다음 단계 CloudFront origin으로 등록"
+  description = "HTTP API invoke URL (CloudFront 오리진)"
   value       = aws_apigatewayv2_stage.default.invoke_url
 }
 
@@ -19,9 +19,16 @@ output "alb_arn" {
 }
 
 output "origin_verify_ssm_param" {
-  description = "origin-verify 비밀이 저장된 SSM 파라미터 (값 아님 — 엣지 스택이 읽음)"
+  description = "origin-verify 비밀이 저장된 SSM 파라미터 (값 아님)"
   value = {
     name = aws_ssm_parameter.origin_verify.name
     arn  = aws_ssm_parameter.origin_verify.arn
   }
+}
+
+# 같은 스택에 통합된 edge 모듈이 CloudFront 헤더 주입에 직접 소비 (스택 출력으로는 재노출하지 않음)
+output "origin_verify_secret" {
+  description = "origin-verify 비밀 값 (sensitive) — 동일 스택 edge 모듈 전용"
+  value       = random_password.origin_verify.result
+  sensitive   = true
 }

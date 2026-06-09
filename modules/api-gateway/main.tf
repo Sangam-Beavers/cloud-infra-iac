@@ -12,7 +12,7 @@ resource "random_password" "origin_verify" {
   special = false
 }
 
-# 비밀은 SSM SecureString에만 저장 (출력하지 않음). 다음 단계 엣지 스택이 같은 계정에서 소비
+# 비밀은 SSM SecureString에 저장 (회전·운영 참조용). 같은 스택의 edge 모듈은 origin_verify_secret 출력으로 받는다
 resource "aws_ssm_parameter" "origin_verify" {
   name   = "${var.ssm_prefix}/origin-verify"
   type   = "SecureString"
@@ -145,7 +145,7 @@ resource "aws_lb_listener_rule" "this" {
 
   condition {
     path_pattern {
-      values = [each.value.path_prefix]
+      values = each.value.path_patterns
     }
   }
 }

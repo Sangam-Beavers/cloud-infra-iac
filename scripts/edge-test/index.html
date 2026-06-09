@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>global-bridge · stage edge</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { font-size: 1.4rem; margin-bottom: .25rem; }
+    .sub { color: #888; margin-top: 0; font-size: .9rem; }
+    .banner { padding: .8rem 1rem; border-radius: .6rem; margin: 1.2rem 0; font-weight: 600; }
+    .banner.checking { background: #fff7e6; color: #8a6d00; }
+    .banner.ok { background: #e9f9ee; color: #1a7f37; }
+    .banner.fail { background: #fde8e8; color: #b42318; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .6rem .5rem; border-bottom: 1px solid #8884; font-size: .92rem; }
+    th { color: #888; font-weight: 600; }
+    .badge { font-weight: 700; }
+    .pill { font-size: .72rem; color: #888; }
+    code { background: #8881; padding: .1rem .3rem; border-radius: .3rem; font-size: .82rem; }
+    button { margin-top: 1rem; padding: .5rem 1rem; border-radius: .5rem; border: 1px solid #8886; background: transparent; cursor: pointer; font: inherit; }
+    footer { margin-top: 2rem; color: #999; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <h1>🌐 global-bridge · <b>stage</b> edge</h1>
+  <p class="sub">이 페이지는 비공개 S3에서 CloudFront(OAC)로 서빙되고, 아래 API 호출은 같은 CloudFront 도메인의 <code>/api/*</code> → API Gateway → 내부 ALB → 각 서비스 Pod로 흐릅니다 (same-origin).</p>
+
+  <div id="banner" class="banner checking">백엔드 통신 검증중…</div>
+
+  <table>
+    <thead>
+      <tr><th>서비스</th><th>엔드포인트</th><th>상태</th><th>응답</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <button id="recheck">다시 검증</button>
+
+  <footer id="meta"></footer>
+
+  <script>
+    const SERVICES = [
+      { name: "member",    path: "/api/v1/members/me" },
+      { name: "community", path: "/api/v1/community/posts" },
+      { name: "document",  path: "/api/v1/documents/ping" },
+      { name: "wallet",    path: "/api/v1/wallets/me" },
+    ];
+
+    const rowsEl = document.getElementById("rows");
+    const bannerEl = document.getElementById("banner");
+    const metaEl = document.getElementById("meta");
+
+    function render() {
+      rowsEl.innerHTML = SERVICES.map(s => `
+        <tr data-svc="${s.name}">
+          <td><b>${s.name}</b></td>
+          <td><code>${s.path}</code></td>
+          <td class="badge st">⏳ 검증중</td>
+          <td class="resp pill">—</td>
+        </tr>`).join("");
+    }
+
+    function pick(text, key) {
+      const m = (text || "").match(new RegExp("^" + key + ":\\s*(.+)$", "m"));
+      return m ? m[1].trim() : null;
+    }
+
+    async function check(s) {
+      const row = rowsEl.querySelector(`tr[data-svc="${s.name}"]`);
+      const st = row.querySelector(".st");
+      const resp = row.querySelector(".resp");
+      const t0 = performance.now();
+      try {
+        const res = await fetch(s.path, { headers: { "Accept": "text/plain" } });
+        const ms = Math.round(performance.now() - t0);
+        const body = await res.text();
+        if (res.ok) {
+          st.textContent = "✅ OK";
+          const who = pick(body, "Name") || pick(body, "Hostname") || "응답";
+          resp.textContent = `HTTP ${res.status} · ${who} · ${ms}ms`;
+          return true;
+        } else {
+          st.textContent = "❌ " + res.status;
+          resp.textContent = `HTTP ${res.status} · ${ms}ms`;
+          return false;
+        }
+      } catch (e) {
+        st.textContent = "❌ 오류";
+        resp.textContent = String(e);
+        return false;
+      }
+    }
+
+    async function runAll() {
+      render();
+      bannerEl.className = "banner checking";
+      bannerEl.textContent = "백엔드 통신 검증중…";
+      const results = await Promise.all(SERVICES.map(check));
+      const ok = results.filter(Boolean).length;
+      if (ok === SERVICES.length) {
+        bannerEl.className = "banner ok";
+        bannerEl.textContent = `✅ 4개 서비스 모두 정상 (${ok}/${SERVICES.length})`;
+      } else {
+        bannerEl.className = "banner fail";
+        bannerEl.textContent = `⚠️ ${ok}/${SERVICES.length} 정상 — 일부 서비스 응답 실패`;
+      }
+      metaEl.textContent = "검증 시각: " + new Date().toISOString();
+    }
+
+    document.getElementById("recheck").addEventListener("click", runAll);
+    runAll();
+  </script>
+</body>
+</html>

@@ -104,6 +104,22 @@ output "api_alb_security_group_id" {
 }
 
 output "api_origin_verify_ssm_param" {
-  description = "origin-verify 비밀 SSM 파라미터 (값 아님 — 엣지 스택이 읽음)"
+  description = "origin-verify 비밀 SSM 파라미터 (값 아님)"
   value       = module.api_gateway.origin_verify_ssm_param
+}
+
+# 엣지 (Phase 5-a, 통합) — 운영·edge-test 스크립트가 참조
+output "cloudfront_domain_name" {
+  description = "CloudFront 배포 도메인 (https://<이 값>으로 접속)"
+  value       = module.edge.cloudfront_domain_name
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront 배포 ID (캐시 무효화에 사용)"
+  value       = module.edge.cloudfront_distribution_id
+}
+
+output "spa_bucket_name" {
+  description = "SPA 정적 자산 S3 버킷 (aws s3 cp 로 업로드)"
+  value       = module.edge.spa_bucket_name
 }

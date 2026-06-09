@@ -49,7 +49,7 @@ variable "waf_rate_limit" {
 variable "services" {
   description = "백엔드 서비스 → 내부 ALB 경로/포트/헬스체크/우선순위 매핑. 각 서비스는 TargetGroupBinding으로 파드를 등록한다"
   type = map(object({
-    path_prefix       = string                       # 예: /community/*
+    path_patterns     = list(string)                 # ALB 경로 룰 (예: ["/api/v1/community/*"]). 서비스당 다중 가능, ALB는 룰당 최대 5개
     port              = number                       # 컨테이너/Service targetPort
     health_check_path = optional(string, "/healthz") # TG 헬스체크 경로
     priority          = number                       # 리스너 룰 우선순위 (서비스별 고유, 낮을수록 먼저)

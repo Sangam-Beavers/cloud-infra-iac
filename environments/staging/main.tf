@@ -150,8 +150,7 @@ module "kms" {
 }
 
 # 백엔드 진입점 — HTTP API → VPC Link → internal ALB → EKS 4서비스 (TargetGroupBinding).
-# CloudFront 우회 차단(origin-lock)은 ALB의 regional WAF. 엣지(CloudFront/Route53/ACM/S3)는
-# 같은 FISA 계정의 다음 단계 별도 스택에서 api_origin_url + origin-verify 시크릿을 소비.
+# CloudFront 우회 차단(origin-lock)은 ALB의 regional WAF가 X-Origin-Verify로 수행한다.
 module "api_gateway" {
   source = "../../modules/api-gateway"
 
@@ -163,6 +162,45 @@ module "api_gateway" {
 
   services       = var.api_gateway_config.services
   waf_rate_limit = var.api_gateway_config.waf_rate_limit
+}
+
+# ---------------------------------------------------------------------------
+# 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF). api_gateway 출력(오리진 URL·origin-verify
+# 비밀)을 같은 그래프에서 직접 참조한다. 도메인은 edge_config.domain (비우면 기본 인증서).
+# ---------------------------------------------------------------------------
+# CLOUDFRONT scope WAF/ACM은 us-east-1 전용이라 별칭 provider를 둔다
+provider "aws" {
+  alias   = "us_east_1"
+  region  = "us-east-1"
+  profile = var.aws_profile
+
+  default_tags {
+    tags = {
+      Environment    = var.environment
+      ManagedBy      = "terraform"
+      Project        = var.project
+      awsApplication = local.application_arn
+    }
+  }
+}
+
+module "edge" {
+  source = "../../modules/edge"
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  name           = "sb-stage-edge"
+  domain         = var.edge_config.domain
+  price_class    = var.edge_config.price_class
+  waf_rate_limit = var.edge_config.waf_rate_limit
+
+  api_origin = {
+    domain_name          = trimsuffix(trimprefix(module.api_gateway.api_origin_url, "https://"), "/")
+    origin_verify_secret = module.api_gateway.origin_verify_secret
+  }
 }
 
 # ---------------------------------------------------------------------------

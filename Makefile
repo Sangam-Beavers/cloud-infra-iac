@@ -64,7 +64,7 @@ STAGE := environments/staging
 .PHONY: help fmt validate state-bucket init plan-app apply-app plan-prod apply-prod destroy-prod \
         plan-stage apply-stage destroy-stage bootstrap-prod bootstrap-stage clean-secrets \
         vpn-keys-prod vpn-keys-stage vpn-restart vpn-eip kubectl-tunnel-prod kubectl-tunnel-stage \
-        k8s-stack-prod k8s-stack-stage up-all down-all
+        k8s-stack-prod k8s-stack-stage edge-test-deploy-stage edge-test-clean-stage up-all down-all
 
 help: ## 타겟 목록 출력
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -154,6 +154,14 @@ vpn-eip: ## VPN 라우터 EIP를 secrets/eip.env에 기록 (pfSense Endpoint 설
 	@echo "PROD_VPN_EIP=$$(cd $(PROD) && terraform output -raw vpn_eip)" > secrets/eip.env
 	@echo "STAGE_VPN_EIP=$$(cd $(STAGE) && terraform output -raw vpn_eip)" >> secrets/eip.env
 	@cat secrets/eip.env
+
+# ---------- 엣지 검증용 더미 (4서비스 echo + 테스트 프론트) — stage 전용, 실앱 아님 ----------
+# 엣지(CloudFront+S3+WAF) 자체는 environments/* 에 통합돼 apply-stage/apply-prod로 함께 생성/삭제된다.
+edge-test-deploy-stage: ## 엣지 검증 더미 배포 (4서비스 echo + 테스트 SPA, SSM 터널 경유)
+	./scripts/edge-test.sh deploy stage
+
+edge-test-clean-stage: ## 엣지 검증 더미 삭제 (4서비스)
+	./scripts/edge-test.sh clean stage
 
 # ---------- 전체 생성/삭제 한 줄 명령 (CONFIRM 타이핑 필요) ----------
 up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부트스트랩→VPN 키/재기동 (~55분)

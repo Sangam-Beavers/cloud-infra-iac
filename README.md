@@ -34,8 +34,8 @@ cloud-infra-iac/
 ├── environments/
 │   ├── production/   # 운영 환경 (독립 state)
 │   └── staging/      # 스테이징 환경 (독립 state)
-├── modules/          # vpc · kms · aurora · elasticache · eks · jumphost · vpn
-├── scripts/          # 부트스트랩/터널 스크립트 (Makefile이 호출)
+├── modules/          # vpc · kms · aurora · elasticache · eks · jumphost · vpn · api-gateway · edge
+├── scripts/          # 부트스트랩/터널/검증 스크립트 (Makefile이 호출)
 └── Makefile          # 모든 운영 명령의 진입점 — `make help`
 ```
 
@@ -115,7 +115,10 @@ aws ssm describe-instance-information --profile woori-fisa-1k --region ap-northe
 | `vpn-keys-{prod,stage}` | WG 키를 SSM에 등록 — apply 후에만 가능 (환경 CMK 필요) |
 | `vpn-restart` / `vpn-eip` | 라우터 재기동 (키 반영, EIP 유지) / EIP를 `secrets/eip.env`에 기록 |
 | `kubectl-tunnel-{prod,stage}` | private-only EKS API로 kubectl 터널 (점프호스트 경유) |
+| `edge-test-{deploy,clean}-stage` | 엣지 검증용 더미 (4서비스 echo + 테스트 SPA) 배포 / 삭제 — stage 전용, 실앱 아님 |
 | `fmt` / `validate` / `init` | 코드 포맷 / 3스택 검증 / 3스택 초기화 |
+
+> *환경 apply (`apply-stage` / `apply-prod`)에는 **API Gateway origin과 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF)가 포함**됩니다 — 별도 스택이 아니라 환경 스택에 통합되어 있어, 환경을 올리면 엣지까지 함께 생성됩니다. 커스텀 도메인/ACM은 `terraform.tfvars`의 `edge_config.domain`으로 켭니다 (비우면 기본 `*.cloudfront.net`).*
 
 스크립트는 Makefile이 호출하므로 직접 실행은 디버깅할 때만 필요합니다.
 
@@ -128,6 +131,7 @@ aws ssm describe-instance-information --profile woori-fisa-1k --region ap-northe
 | `kubectl-tunnel.sh` | 로컬 | 점프호스트 SSM 포트포워딩으로 EKS API 터널을 열고, kubeconfig (`tls-server-name`) 설정 방법을 안내합니다 |
 | `install-k8s-stack.sh` | 로컬 | 점프호스트 SSM 터널 경유로 Cilium (CNI) · AWS Load Balancer Controller · External Secrets Operator를 Helm으로 설치합니다 — 클러스터 안엔 사전 설치물이 없어 로컬 `helm`/`kubectl`만 필요합니다 (`<prod\|stage> [cilium\|alb\|eso\|all]`) |
 | `create-state-bucket.sh` | 로컬 | 계정의 state 버킷을 발견하거나 없으면 생성하고 (versioning·SSE-S3·public 차단·HTTPS 강제), 그 이름을 캐시에 기록합니다 — make가 자동 호출 ([5.4](#54-s3-백엔드와-계정-전환) 참고) |
+| `edge-test.sh` | 로컬 | 엣지 검증용 더미를 배포/삭제합니다 (`deploy\|clean stage`) — TG ARN·ALB SG·버킷을 terraform output에서 동적으로 읽어 (계정값 하드코딩 없음), 4서비스 echo (traefik/whoami) + TargetGroupBinding을 SSM 터널로 적용하고, 테스트 SPA (`scripts/edge-test/index.html`)를 S3에 올려 CloudFront 캐시를 무효화합니다 — `make edge-test-*-stage`가 호출 |
 
 모든 부트스트랩은 멱등입니다 — 재실행하면 비밀번호가 재발급되고 DB 계정 (`ALTER USER`)과 비밀이 함께 갱신되어 항상 일치합니다.
 
@@ -186,14 +190,25 @@ make up-all PROFILE=<FISA-프로필>
 
 ### 6.1. 네트워크
 
-사용자 트래픽 (WAF + CloudFront + ALB)은 IGW 경로만 타며 NAT를 지나지 않습니다. NAT는 private 구역의 아웃바운드 (패키지·이미지 풀) 전용입니다.
+사용자 트래픽은 CloudFront → API Gateway → 내부 ALB 경로로 들어오며 (아래 **공개 진입 경로** 참고), IGW만 타고 NAT를 지나지 않습니다. NAT는 private 구역의 아웃바운드 (패키지·이미지 풀) 전용입니다.
 
 | 구역 | 인터넷 | 용도 |
 |---|---|---|
-| public | 인/아웃 (IGW) | DMZ — ALB, VPN 라우터 |
+| public | 인/아웃 (IGW) | VPN 라우터, NAT GW (인그레스용 ALB는 내부 전용) |
 | private | 아웃바운드만 (NAT) | EKS 노드/파드 |
 | db | 격리 | Aurora, Valkey |
 | mgmt | 격리 | 점프 호스트 (SSM 엔드포인트 경유) |
+
+**공개 진입 경로 (엣지, Phase 5-a)**: 인그레스용 public ALB는 없습니다. ALB는 내부 전용이고, 사용자 요청은 다음 경로로 백엔드 파드에 닿습니다.
+
+```
+CloudFront ┬ /*      → 비공개 S3 (OAC)                          [SPA 정적 호스팅]
+           └ /api/*  → API Gateway (HTTP API, X-Origin-Verify 주입)
+                        → VPC Link → 내부 ALB (경로 라우팅)
+                          → /api/v1/<서비스>/* → EKS 파드 (TargetGroupBinding)
+```
+
+방어는 2겹입니다. ① CloudFront 앞단 **CLOUDFRONT-scope WAF** (`modules/edge` — AWS 관리형 IpReputation·Common·KnownBadInputs + IP rate-limit), ② 내부 ALB의 **regional WAF** (`modules/api-gateway` — origin-lock: CloudFront가 넣는 `X-Origin-Verify` 헤더가 없으면 차단해 CloudFront 우회를 막음). 백엔드는 `/api/v1`을 네이티브로 노출하므로 CloudFront는 경로를 그대로 전달합니다.
 
 EKS API는 **private-only**입니다. 접근 경로는 점프호스트 SSM 포트포워딩 (`make kubectl-tunnel-*`) 하나로 통제됩니다.
 
