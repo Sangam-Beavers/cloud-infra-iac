@@ -43,6 +43,12 @@ else
   echo "✔ state 버킷 생성 완료: $BUCKET"
 fi
 
-# 3) 이름을 캐시에 기록 (make의 STATE_BUCKET이 이 파일을 읽음). secrets/* 는 gitignore.
+# 3) 이름을 캐시에 기록 (make의 STATE_BUCKET이 이 파일을 읽음 — '#' 주석/빈 줄은 무시). secrets/* 는 gitignore.
 mkdir -p secrets
-printf '%s\n' "$BUCKET" > "$CACHE"
+{
+  printf '# === Terraform state 백엔드 버킷 캐시 (자동 생성 — 편집/온프렘 작업 불필요) ===\n'
+  printf '# make state-bucket(create-state-bucket.sh)이 계정의 state 버킷을 발견·생성해 여기 기록한다.\n'
+  printf '# make가 마지막 비주석 줄을 STATE_BUCKET으로 읽어 terraform init -backend-config에 주입.\n'
+  printf '# 계정(PROFILE)마다 별도 파일이며, 지우면 다음 make 호출이 재생성한다.\n'
+  printf '%s\n' "$BUCKET"
+} > "$CACHE"

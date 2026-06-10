@@ -51,6 +51,31 @@ resource "aws_security_group" "this" {
     }
   }
 
+  # forward 트래픽 ingress — 흐름별 최소 포트만 (미허용 시 ENI에서 drop → AWS→on-prem 막힘).
+  # private(EKS 노드) → Harbor 이미지 pull (TCP 443)
+  dynamic "ingress" {
+    for_each = length(var.forward_harbor_cidrs) > 0 ? [1] : []
+    content {
+      description = "forward: private to on-prem Harbor (TCP)"
+      from_port   = var.forward_harbor_port
+      to_port     = var.forward_harbor_port
+      protocol    = "tcp"
+      cidr_blocks = var.forward_harbor_cidrs
+    }
+  }
+
+  # mgmt(resolver outbound 엔드포인트) → on-prem DNS (UDP 53)
+  dynamic "ingress" {
+    for_each = length(var.forward_dns_cidrs) > 0 ? [1] : []
+    content {
+      description = "forward: mgmt to on-prem DNS (UDP)"
+      from_port   = 53
+      to_port     = 53
+      protocol    = "udp"
+      cidr_blocks = var.forward_dns_cidrs
+    }
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -98,7 +123,7 @@ resource "aws_iam_role_policy" "self_healing" {
         Effect = "Allow"
         Action = ["ec2:ReplaceRoute", "ec2:CreateRoute"]
         Resource = [
-          for rtb in var.return_route_table_ids :
+          for rtb in concat(var.return_route_table_ids, var.app_route_table_ids) :
           "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:route-table/${rtb}"
         ]
       },
@@ -156,16 +181,20 @@ resource "aws_launch_template" "this" {
   vpc_security_group_ids = [aws_security_group.this.id]
 
   user_data = base64encode(templatefile("${path.module}/userdata.sh.tpl", {
-    allocation_id          = aws_eip.this.allocation_id
-    return_route_table_ids = var.return_route_table_ids
-    onprem_cidrs           = var.onprem_cidrs
-    advertise_cidrs        = var.advertise_cidrs
-    tunnels                = var.tunnels
-    ssm_prefix             = var.ssm_prefix
-    bgp_router_id          = var.bgp_router_id
-    bgp_local_as           = var.bgp_local_as
-    bgp_peer_as            = var.bgp_peer_as
-    pfsense_nat_ip         = var.pfsense_nat_ip
+    allocation_id           = aws_eip.this.allocation_id
+    return_route_table_ids  = var.return_route_table_ids
+    onprem_cidrs            = var.onprem_cidrs
+    advertise_cidrs         = var.advertise_cidrs
+    tunnels                 = var.tunnels
+    ssm_prefix              = var.ssm_prefix
+    bgp_router_id           = var.bgp_router_id
+    bgp_local_as            = var.bgp_local_as
+    bgp_peer_as             = var.bgp_peer_as
+    pfsense_nat_ip          = var.pfsense_nat_ip
+    app_route_table_ids     = var.app_route_table_ids
+    app_onprem_destinations = var.app_onprem_destinations
+    snat_source_cidrs       = var.snat_source_cidrs
+    wg_mtu                  = var.wg_mtu
   }))
 
   block_device_mappings {

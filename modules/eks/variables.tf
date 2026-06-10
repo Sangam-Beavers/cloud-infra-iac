@@ -10,8 +10,14 @@ variable "cluster_version" {
 }
 
 variable "subnet_ids" {
-  description = "노드/컨트롤플레인 ENI를 배치할 서브넷 ID 목록 (private 서브넷)"
+  description = "노드 그룹을 배치할 서브넷 ID 목록 (private 서브넷)"
   type        = list(string)
+}
+
+variable "control_plane_subnet_ids" {
+  description = "컨트롤플레인(API 엔드포인트) ENI를 둘 서브넷 — 비우면 subnet_ids와 동일. on-prem ArgoCD가 API에 닿아야 하면 mgmt 서브넷을 넘겨 private를 광고 없이 숨긴다. 최소 2 AZ."
+  type        = list(string)
+  default     = []
 }
 
 variable "kms_key_arn" {
@@ -96,4 +102,23 @@ variable "eso_secret_prefix" {
   description = "External Secrets가 읽을 Secrets Manager 비밀 접두사 (환경 격리, 예: sb/stage/)"
   type        = string
   default     = "sb/"
+}
+
+# --- on-prem ArgoCD용 access entry ---
+variable "argocd_principal_arn" {
+  description = "on-prem ArgoCD가 assume하는 IAM principal ARN — access entry로 RBAC에 매핑. 비우면 access entry를 만들지 않음"
+  type        = string
+  default     = ""
+}
+
+variable "argocd_access_policy_arn" {
+  description = "ArgoCD principal에 부여할 EKS access policy (기본: Edit). 더 좁히려면 View, 더 넓히려면 Admin/ClusterAdmin"
+  type        = string
+  default     = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+}
+
+variable "argocd_access_namespaces" {
+  description = "ArgoCD access policy를 한정할 네임스페이스 목록 (비우면 cluster 범위). least-privilege로 배포 대상 네임스페이스만 권장"
+  type        = list(string)
+  default     = []
 }

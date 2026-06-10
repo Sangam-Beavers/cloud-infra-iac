@@ -90,6 +90,19 @@ done
 %{ endfor ~}
 
 # ==========================================
+# 4b. App(private) RT — Harbor 등 한정 목적지만 이 ENI로 (private 대역은 광고하지 않음)
+# ==========================================
+%{ for rtb in app_route_table_ids ~}
+for CIDR in %{ for d in app_onprem_destinations }${d} %{ endfor }; do
+  echo "[INFO] app ${rtb} <- $CIDR"
+  retry 5 bash -c "aws ec2 replace-route --route-table-id '${rtb}' --destination-cidr-block \"$CIDR\" \
+      --network-interface-id '$INTERFACE_ID' --region '$REGION' \
+    || aws ec2 create-route --route-table-id '${rtb}' --destination-cidr-block \"$CIDR\" \
+      --network-interface-id '$INTERFACE_ID' --region '$REGION'"
+done
+%{ endfor ~}
+
+# ==========================================
 # 5. 커널 파라미터 (forwarding + rp_filter 완화)
 # ==========================================
 sysctl -w net.ipv4.ip_forward=1
@@ -128,6 +141,7 @@ Address = ${t.address}
 PrivateKey = $EC2_PRV
 ListenPort = ${t.listen_port}
 Table = off
+MTU = ${wg_mtu}
 
 [Peer]
 PublicKey = $PEER_PUB
@@ -187,6 +201,27 @@ ip rule add fwmark ${idx + 1} table ${100 + idx} priority ${100 + idx} 2>/dev/nu
 %{ endfor ~}
 iptables -t mangle -C PREROUTING -i "$MGMT_DEV" -j CONNMARK --restore-mark 2>/dev/null \
   || iptables -t mangle -A PREROUTING -i "$MGMT_DEV" -j CONNMARK --restore-mark
+
+# ==========================================
+# 9b. SNAT — private (app) → on-prem 목적지를 터널 IP로 가장 (private 대역 은닉)
+#   on-prem(Harbor)엔 라우터 터널 IP 단일 소스로만 보이고, 회신은 BGP 네이버(터널)로 되돌아온다.
+# ==========================================
+%{ for ifname in keys(tunnels) ~}
+%{ for src in snat_source_cidrs ~}
+%{ for dst in app_onprem_destinations ~}
+iptables -t nat -C POSTROUTING -s ${src} -d ${dst} -o ${ifname} -j MASQUERADE 2>/dev/null \
+  || iptables -t nat -A POSTROUTING -s ${src} -d ${dst} -o ${ifname} -j MASQUERADE
+%{ endfor ~}
+%{ endfor ~}
+%{ endfor ~}
+
+# ==========================================
+# 9c. MSS clamping — forward TCP 세그먼트를 경로 MTU(WG 1420)에 맞춰 줄인다.
+#   인터넷 경유 터널이라 PMTU 발견이 막히면 큰 세그먼트가 drop/reset된다(이미지 pull 등 대용량 실패).
+#   SYN에 clamp하면 양 끝이 처음부터 작은 MSS로 협상해 fragment 없이 전송된다.
+# ==========================================
+iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+  || iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 # ==========================================
 # 10. FRR 기동 + 상태 로그

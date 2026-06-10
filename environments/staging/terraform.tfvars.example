@@ -97,3 +97,16 @@ vpn_bgp_router_id = "<WG0ACTIVE_EC2_TUNNEL_IP>"
 vpn_onprem_cidrs   = ["<ONPREM_CIDR_1>", "<ONPREM_CIDR_2>"]
 # pfSense NAT source IP. 비대칭 라우팅 방지 policy routing 대상. 온프렘 pfSense NAT 설정값과 동일하게 채울 것.
 vpn_pfsense_nat_ip = "<PFSENSE_NAT_IP>"
+
+# --- 온프렘 Harbor/ArgoCD 연동 (선택) — prod와 동일 구조. enabled=true로 켜면 생성 ---
+# 대칭 은닉: private/db는 on-prem에 광고/노출 0. 사전 준비는 prod example 주석 참고.
+onprem_integration = {
+  enabled               = false
+  harbor_destinations   = ["<HARBOR_IP>/32"]
+  argocd_source_cidrs   = ["<PFSENSE_NAT_IP>/32"]
+  argocd_principal_arn  = "<ARGOCD_IAM_PRINCIPAL_ARN>"
+  argocd_namespaces     = []
+  dns_resolver_ips      = ["<ONPREM_DNS_IP>"]
+  dns_forward_domains   = ["<ONPREM_DOMAIN>"]
+  inbound_allowed_cidrs = ["<ONPREM_CIDR>"]
+}

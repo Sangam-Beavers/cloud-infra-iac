@@ -12,6 +12,9 @@ data "terraform_remote_state" "application" {
 
 locals {
   application_arn = data.terraform_remote_state.application.outputs.application_arns[var.environment]
+  onprem_enabled  = var.onprem_integration.enabled
+  # Harbor 경로/SNAT는 목적지가 실제로 있을 때만 (빈 목적지로 켜면 user_data가 깨짐 방지)
+  harbor_enabled = var.onprem_integration.enabled && length(var.onprem_integration.harbor_destinations) > 0
 }
 
 provider "aws" {
@@ -105,11 +108,21 @@ module "vpn" {
   tunnels       = var.vpn_tunnels
   bgp_router_id = var.vpn_bgp_router_id
 
-  # mgmt 대역만 광고 + 온프렘 대역 return 라우트 (검증 구성 유지)
+  # mgmt 대역만 광고 + 온프렘 대역 return 라우트
   advertise_cidrs        = values(var.network.mgmt)
   onprem_cidrs           = var.vpn_onprem_cidrs
   pfsense_nat_ip         = var.vpn_pfsense_nat_ip
   return_route_table_ids = [module.vpc.mgmt_route_table_id]
+
+  # private (EKS 노드)가 Harbor만 닿도록 — private RT에 Harbor /32 경로 + 터널 IP로 SNAT (은닉).
+  # private는 광고하지 않으므로 on-prem엔 라우터 단일 소스로만 보인다.
+  app_route_table_ids     = local.harbor_enabled ? values(module.vpc.private_route_table_ids) : []
+  app_onprem_destinations = var.onprem_integration.harbor_destinations
+  snat_source_cidrs       = local.harbor_enabled ? values(var.network.private) : []
+
+  # forward 트래픽 SG ingress — private→Harbor(TCP 443), mgmt→DNS(UDP 53)만 최소 허용
+  forward_harbor_cidrs = local.harbor_enabled ? values(var.network.private) : []
+  forward_dns_cidrs    = local.onprem_enabled ? values(var.network.mgmt) : []
 
   instance_extra_tags = { awsApplication = local.application_arn }
 }
@@ -131,9 +144,17 @@ module "eks" {
   instance_types = var.eks_config.instance_types
   desired_size   = var.eks_config.desired_size
 
-  # private-only API + 점프호스트 (mgmt)에서의 kubectl 접근 허용
+  # 연동 시 컨트롤플레인 ENI를 mgmt에 둬 on-prem (ArgoCD)이 private 광고 없이 API에 닿게 한다.
+  # 비연동 시 빈 목록 → 모듈이 subnet_ids (private)로 폴백 (기존 동작).
+  control_plane_subnet_ids = local.onprem_enabled ? values(module.vpc.mgmt_subnet_ids) : []
+
+  # private-only API + 점프호스트(mgmt) kubectl + (연동 시) ArgoCD 소스(.253)
   endpoint_public_access = var.eks_config.endpoint_public_access
-  api_allowed_cidrs      = values(var.network.mgmt)
+  api_allowed_cidrs      = concat(values(var.network.mgmt), local.onprem_enabled ? var.onprem_integration.argocd_source_cidrs : [])
+
+  # ArgoCD용 access entry (principal ARN 있을 때만 생성)
+  argocd_principal_arn     = local.onprem_enabled ? var.onprem_integration.argocd_principal_arn : ""
+  argocd_access_namespaces = var.onprem_integration.argocd_namespaces
 
   min_size = var.eks_config.min_size
   max_size = var.eks_config.max_size
@@ -147,6 +168,22 @@ module "kms" {
 
   name                    = "sb-prod"
   deletion_window_in_days = var.kms_config.deletion_window_in_days
+}
+
+# 하이브리드 DNS — 엔드포인트는 mgmt에. 연동 (enabled) 시에만 생성.
+#   inbound : on-prem이 EKS private 엔드포인트 호스트명을 해석 (pfSense 조건부 포워더 대상)
+#   outbound: EKS 노드가 harbor.corp.example 등 on-prem 도메인을 해석
+module "route53_resolver" {
+  source = "../../modules/route53-resolver"
+  count  = local.onprem_enabled ? 1 : 0
+
+  name       = "sb-prod"
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = values(module.vpc.mgmt_subnet_ids)
+
+  inbound_allowed_cidrs = var.onprem_integration.inbound_allowed_cidrs
+  forward_domains       = var.onprem_integration.dns_forward_domains
+  forward_target_ips    = var.onprem_integration.dns_resolver_ips
 }
 
 # 백엔드 진입점 — HTTP API → VPC Link → internal ALB → EKS 4서비스 (TargetGroupBinding).

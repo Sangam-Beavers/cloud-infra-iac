@@ -99,3 +99,19 @@ vpn_bgp_router_id = "<WG0ACTIVE_EC2_TUNNEL_IP>"
 vpn_onprem_cidrs   = ["<ONPREM_CIDR_1>", "<ONPREM_CIDR_2>"]
 # pfSense NAT source IP. 비대칭 라우팅 방지 policy routing 대상. 온프렘 pfSense NAT 설정값과 동일하게 채울 것.
 vpn_pfsense_nat_ip = "<PFSENSE_NAT_IP>"
+
+# --- 온프렘 Harbor/ArgoCD 연동 (선택) — enabled=true로 켜면 하이브리드 DNS·SNAT·access entry 생성 ---
+# 대칭 은닉: private/db는 on-prem에 광고/노출 0. on-prem엔 mgmt/터널 IP 단일 소스로만 보인다.
+# 사전 준비: ① ArgoCD가 assume할 IAM principal(access key 또는 IAM Roles Anywhere)
+#           ② Harbor robot 계정 + 사설 CA (노드 containerd 신뢰 — DaemonSet/user_data)
+#           ③ pfSense: EKS 엔드포인트 도메인 → resolver_inbound_ips 조건부 포워더 + 라우터→Harbor:443 방화벽
+onprem_integration = {
+  enabled               = false                       # 준비 끝나면 true
+  harbor_destinations   = ["<HARBOR_IP>/32"]          # 노드가 Pull할 Harbor (least-privilege /32)
+  argocd_source_cidrs   = ["<PFSENSE_NAT_IP>/32"]     # ArgoCD→EKS API 소스 = pfSense NAT IP
+  argocd_principal_arn  = "<ARGOCD_IAM_PRINCIPAL_ARN>" # 비우면 access entry 미생성
+  argocd_namespaces     = []                          # 비우면 cluster 범위 (배포 네임스페이스로 좁히길 권장)
+  dns_resolver_ips      = ["<ONPREM_DNS_IP>"]         # outbound 포워딩 대상 (pfSense DNS)
+  dns_forward_domains   = ["<ONPREM_DOMAIN>"]         # 예: 내부 도메인 zone
+  inbound_allowed_cidrs = ["<ONPREM_CIDR>"]           # inbound 질의 허용 소스
+}

@@ -55,8 +55,10 @@ resource "aws_eks_cluster" "this" {
   # api/audit/authenticator 감사 로그를 CloudWatch로 (인증 실패·권한 변경 추적)
   enabled_cluster_log_types = ["api", "audit", "authenticator"]
 
+  # 컨트롤플레인 ENI는 control_plane_subnet_ids(지정 시 mgmt)에, 노드 그룹은 subnet_ids(private)에.
+  # 분리하면 on-prem(ArgoCD)이 mgmt 경유로 API에 닿으면서 private는 광고 없이 숨길 수 있다.
   vpc_config {
-    subnet_ids              = var.subnet_ids
+    subnet_ids              = length(var.control_plane_subnet_ids) > 0 ? var.control_plane_subnet_ids : var.subnet_ids
     endpoint_private_access = true
     endpoint_public_access  = var.endpoint_public_access
     public_access_cidrs     = var.endpoint_public_access ? var.endpoint_public_access_cidrs : null
@@ -257,4 +259,37 @@ resource "aws_eks_addon" "coredns" {
   resolve_conflicts_on_update = "OVERWRITE"
 
   depends_on = [aws_eks_node_group.this]
+}
+
+# ---------------------------------------------------------------------------
+# on-prem ArgoCD용 access entry — IAM principal을 RBAC에 매핑 (authentication_mode=API).
+# principal ARN이 비어있으면 생성하지 않는다. RBAC는 argocd_access_policy_arn(기본 Edit)로
+# 부여하고, argocd_access_namespaces 지정 시 해당 네임스페이스로 한정(least-privilege).
+# ---------------------------------------------------------------------------
+
+resource "aws_eks_access_entry" "argocd" {
+  count = var.argocd_principal_arn != "" ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.argocd_principal_arn
+  type          = "STANDARD"
+
+  tags = {
+    Name = "${var.name}-argocd"
+  }
+}
+
+resource "aws_eks_access_policy_association" "argocd" {
+  count = var.argocd_principal_arn != "" ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.argocd_principal_arn
+  policy_arn    = var.argocd_access_policy_arn
+
+  access_scope {
+    type       = length(var.argocd_access_namespaces) > 0 ? "namespace" : "cluster"
+    namespaces = length(var.argocd_access_namespaces) > 0 ? var.argocd_access_namespaces : null
+  }
+
+  depends_on = [aws_eks_access_entry.argocd]
 }

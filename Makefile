@@ -14,15 +14,21 @@
 #   2. cd environments/production && terraform init && terraform apply
 #      cd environments/staging    && terraform init && terraform apply
 #        # 두 환경은 state가 분리돼 있어 병렬 실행 가능 (~20분)
-#   3. make bootstrap-prod bootstrap-stage
+#   3. make k8s-stack-prod k8s-stack-stage PHASE=all
+#        # Cilium (CNI) → ALB Controller → ESO — apply 직후 CNI 공백을 닫는다 (점프호스트 SSM 터널)
+#   4. make bootstrap-prod bootstrap-stage
 #        # Redis AUTH (ROTATE→SET) + 논리 DB/서비스 계정/비밀 — 점프호스트 SSM 원격 실행
-#   4. make vpn-keys-prod vpn-keys-stage
-#        # WG 키를 SSM SecureString으로 등록 — apply 후에만 가능 (CMK 필요)
-#   5. make vpn-restart
-#        # 라우터 재기동으로 키 반영 (ASG 교체, EIP 유지)
-#   6. make vpn-eip
-#        # 고정 EIP를 secrets/.wireguard-eip 에 기록
-#   7. pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신
+#   5. make vpn-prod vpn-stage
+#        # (통합) WG 키 SSM 등록 → 라우터 재기동 (키 반영) → 고정 EIP를 secrets/.wireguard-eip 기록
+#   6. make onprem-handoff-prod onprem-handoff-stage
+#        # (온프렘 연동 시) EKS endpoint·resolver inbound IP를 secrets/.eks-control-plane-dns-ip 기록
+#
+# ── up-all 이후 온프렘 (pfSense) 수동 작업 — AWS 산출물을 온프렘에 반영 ──
+#   7. pfSense WireGuard Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 → 터널 성립
+#   8. (온프렘 연동 시) pfSense DNS Resolver/Forwarder에 EKS 도메인 conditional forward 추가
+#        # → secrets/.eks-control-plane-dns-ip 의 resolver inbound IP. 온프렘 ArgoCD가 호스트명으로 private EKS API 접근
+#
+# ── 단일 env만: make up-prod / up-stage (생성), down-prod / down-stage (삭제 — application 스택은 보존) ──
 #
 # ── `make down-all` 이 자동 수행하는 전 과정 ──
 #   1. Secrets Manager sb/* 강제 삭제   # destroy가 못 지우는 CLI 생성 비밀 (충돌/고아 방지)
@@ -37,17 +43,17 @@
 PROFILE ?= woori-fisa-1k
 REGION  ?= ap-northeast-2
 
-# STATE_BUCKET은 사용자가 정하지 않는다. create-state-bucket.sh가 계정의 기존 버킷을 발견(or 생성)해
-# 캐시(secrets/.state-bucket-<profile>)에 기록하고, make는 그 캐시를 읽는다 (cat — aws 호출 없음).
+# STATE_BUCKET은 사용자가 정하지 않는다. create-state-bucket.sh가 계정의 기존 버킷을 발견 (or 생성)해
+# 캐시 (secrets/.state-bucket-<profile>)에 기록하고, make는 그 캐시를 읽는다 (cat — aws 호출 없음).
 # up-all/state-bucket이 캐시를 채우므로, 처음/계정전환 시엔 그게 먼저 돌아야 한다.
-STATE_BUCKET = $(shell cat secrets/.state-bucket-$(PROFILE) 2>/dev/null)
+STATE_BUCKET = $(shell tail -1 secrets/.state-bucket-$(PROFILE) 2>/dev/null)
 
 # 엣지 커스텀 도메인 (prod 전용) — secrets/domain.env의 GB_PROD_DOMAIN을 읽는다 (없으면 빈 값 → 기본 *.cloudfront.net).
 EDGE_DOMAIN = $(shell grep -E '^GB_PROD_DOMAIN=' secrets/domain.env 2>/dev/null | tail -1 | cut -d= -f2-)
 
 # terraform provider/remote_state는 TF_VAR_로 자동 주입. REGION은 tfvars의 aws_region이 소스라
-# export하지 않고(우선순위), 백엔드 region만 -backend-config로 맞춘다. PROFILE/REGION은 스크립트가 env로 상속.
-# TF_VAR_state_bucket은 캐시를 늦게 읽도록 재귀(=) — state-bucket이 채운 뒤 init이 읽는다.
+# export하지 않고 (우선순위), 백엔드 region만 -backend-config로 맞춘다. PROFILE/REGION은 스크립트가 env로 상속.
+# TF_VAR_state_bucket은 캐시를 늦게 읽도록 재귀 (=) — state-bucket이 채운 뒤 init이 읽는다.
 export TF_VAR_aws_profile  := $(PROFILE)
 export TF_VAR_state_bucket  = $(STATE_BUCKET)
 export TF_VAR_edge_domain   = $(EDGE_DOMAIN)
@@ -67,11 +73,12 @@ STAGE := environments/staging
 .DEFAULT_GOAL := help
 .PHONY: help fmt validate state-bucket init plan-app apply-app plan-prod apply-prod destroy-prod \
         plan-stage apply-stage destroy-stage bootstrap-prod bootstrap-stage clean-secrets \
-        vpn-keys-prod vpn-keys-stage vpn-restart vpn-eip kubectl-tunnel-prod kubectl-tunnel-stage \
-        k8s-stack-prod k8s-stack-stage edge-test-deploy-stage edge-test-clean-stage up-all down-all
+        vpn-prod vpn-stage vpn-restart vpn-eip _vpn-restart onprem-handoff-prod onprem-handoff-stage \
+        kubeconfig-prod kubeconfig-stage k8s-stack-prod k8s-stack-stage \
+        up-prod up-stage down-prod down-stage up-all down-all
 
 help: ## 타겟 목록 출력
-	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ---------- 공통 ----------
 fmt: ## 전체 Terraform 코드 포맷
@@ -119,6 +126,13 @@ destroy-stage: ## staging 전체 삭제 (확인 입력 필요)
 	@printf "⚠️  staging 전체를 삭제합니다. 계속하려면 'stage' 입력: " && read ans && [ "$$ans" = "stage" ]
 	cd $(STAGE) && $(TF_INIT) >/dev/null && terraform destroy
 
+# ---------- k8s 스택 설치 (Cilium / ALB / ESO — apply 직후 CNI 공백 닫기) ----------
+k8s-stack-prod: ## prod: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|all)
+	./scripts/install-k8s-stack.sh prod $(PHASE)
+
+k8s-stack-stage: ## stage: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|all)
+	./scripts/install-k8s-stack.sh stage $(PHASE)
+
 # ---------- 부트스트랩 (apply 완료 후 실행) ----------
 bootstrap-prod: ## prod: Redis AUTH 설정 + 논리 DB/계정/비밀 생성
 	KMS_KEY_ARN=$$(cd $(PROD) && terraform output -raw kms_key_arn) ./scripts/bootstrap-redis.sh prod sb-prod-redis
@@ -128,46 +142,103 @@ bootstrap-stage: ## stage: Redis AUTH 설정 + 논리 DB/계정/비밀 생성
 	KMS_KEY_ARN=$$(cd $(STAGE) && terraform output -raw kms_key_arn) ./scripts/bootstrap-redis.sh stage sb-stage-redis
 	./scripts/run-db-bootstrap.sh $(STAGE) stage
 
-# ---------- VPN ----------
-vpn-keys-prod: ## prod WG 키를 secrets/wg.prod.env → SSM 등록 (apply 후 실행 — CMK 필요)
+# ---------- VPN (셋업 vpn-{prod,stage} · 유틸 vpn-restart / vpn-eip) ----------
+vpn-prod: ## prod VPN 셋업 — WG키 SSM 등록 + 라우터 재기동 (키 반영) + EIP 기록 (apply 후 1회)
 	./scripts/register-vpn-keys.sh prod
+	@$(MAKE) _vpn-restart VPN_TAGS=sb-prod-vpn
+	@$(MAKE) vpn-eip
 
-vpn-keys-stage: ## stage WG 키를 secrets/wg.stg.env → SSM 등록 (apply 후 실행 — CMK 필요)
+vpn-stage: ## stage VPN 셋업 — WG키 SSM 등록 + 라우터 재기동 (키 반영) + EIP 기록 (apply 후 1회)
 	./scripts/register-vpn-keys.sh stage
+	@$(MAKE) _vpn-restart VPN_TAGS=sb-stage-vpn
+	@$(MAKE) vpn-eip
 
-kubectl-tunnel-prod: ## prod EKS (private-only)로 kubectl 터널 (점프호스트 SSM 포트포워딩, Ctrl+C 종료)
-	./scripts/kubectl-tunnel.sh prod
+vpn-restart: ## VPN 라우터 양쪽 재기동 (키 변경 반영 — ASG가 새 인스턴스로 교체, EIP 유지)
+	@$(MAKE) _vpn-restart VPN_TAGS=sb-prod-vpn,sb-stage-vpn
 
-kubectl-tunnel-stage: ## stage EKS (private-only)로 kubectl 터널
-	./scripts/kubectl-tunnel.sh stage
-
-k8s-stack-prod: ## prod: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|all)
-	./scripts/install-k8s-stack.sh prod $(PHASE)
-
-k8s-stack-stage: ## stage: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|all)
-	./scripts/install-k8s-stack.sh stage $(PHASE)
-
-vpn-restart: ## VPN 라우터 재기동 (키 등록/변경 반영 — ASG가 새 인스턴스로 교체, EIP 유지)
+_vpn-restart: # 내부: VPN_TAGS (쉼표구분) 태그의 라우터 종료 → ASG가 새 키로 재생성 (EIP 유지)
 	-@IDS=$$(aws ec2 describe-instances --profile $(PROFILE) --region $(REGION) \
-	  --filters "Name=tag:Name,Values=sb-prod-vpn,sb-stage-vpn" "Name=instance-state-name,Values=running" \
+	  --filters "Name=tag:Name,Values=$(VPN_TAGS)" "Name=instance-state-name,Values=running" \
 	  --query "Reservations[].Instances[].InstanceId" --output text); \
-	  [ -n "$$IDS" ] && aws ec2 terminate-instances --profile $(PROFILE) --region $(REGION) --instance-ids $$IDS --query "TerminatingInstances[].InstanceId" --output text || echo "(실행 중인 VPN 라우터 없음)"
+	  [ -n "$$IDS" ] && aws ec2 terminate-instances --profile $(PROFILE) --region $(REGION) --instance-ids $$IDS --query "TerminatingInstances[].InstanceId" --output text || echo "($(VPN_TAGS) 실행 인스턴스 없음)"
 
-vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-eip에 기록 (pfSense Endpoint 설정용)
+vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-eip에 기록 (배포된 env만 — pfSense Endpoint 설정용)
 	@mkdir -p secrets
-	@echo "PROD_VPN_EIP=$$(cd $(PROD) && terraform output -raw vpn_eip)" > secrets/.wireguard-eip
-	@echo "STAGE_VPN_EIP=$$(cd $(STAGE) && terraform output -raw vpn_eip)" >> secrets/.wireguard-eip
+	@printf '# === VPN 라우터 고정 EIP — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\n' > secrets/.wireguard-eip
+	@P=$$(cd $(PROD) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$P" ] && echo "PROD_VPN_EIP=$$P" >> secrets/.wireguard-eip || true
+	@S=$$(cd $(STAGE) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$S" ] && echo "STAGE_VPN_EIP=$$S" >> secrets/.wireguard-eip || true
 	@cat secrets/.wireguard-eip
 
-# ---------- 엣지 검증용 더미 (4서비스 echo + 테스트 프론트) — stage 전용, 실앱 아님 ----------
-# 엣지(CloudFront+S3+WAF) 자체는 environments/* 에 통합돼 apply-stage/apply-prod로 함께 생성/삭제된다.
-edge-test-deploy-stage: ## 엣지 검증 더미 배포 (4서비스 echo + 테스트 SPA, SSM 터널 경유)
-	./scripts/edge-test.sh deploy stage
+# ---------- 온프렘 핸드오프 (배포 산출물 → secrets/.*) ----------
+onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip 등)
+	./scripts/onprem-handoff.sh prod
 
-edge-test-clean-stage: ## 엣지 검증 더미 삭제 (4서비스)
-	./scripts/edge-test.sh clean stage
+onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip 등)
+	./scripts/onprem-handoff.sh stage
 
-# ---------- 전체 생성/삭제 한 줄 명령 (CONFIRM 타이핑 필요) ----------
+# ---------- 클러스터 접근 (kubeconfig — 직접 주소, 평소 사용) ----------
+kubeconfig-prod: ## prod EKS kubeconfig 설정 (온프렘/Tailscale 경유 직접 주소 — 터널 불필요). VPN 끊기면 AWS 콘솔 (Session Manager)로 break-glass
+	aws eks update-kubeconfig --name sb-prod-eks --region $(REGION) --profile $(PROFILE)
+	@kubectl get nodes --request-timeout=10s >/dev/null 2>&1 && echo "✔ EKS API 직접 연결 OK — kubectl 바로 사용" || echo "⚠ API 미도달 — pfSense DNS forwarder + Tailscale/VPN (mgmt 도달) 확인. break-glass: AWS 콘솔 → Session Manager → 점프호스트"
+
+kubeconfig-stage: ## stage EKS kubeconfig 설정 (온프렘/Tailscale 경유 직접 주소 — 터널 불필요). VPN 끊기면 AWS 콘솔 (Session Manager)로 break-glass
+	aws eks update-kubeconfig --name sb-stage-eks --region $(REGION) --profile $(PROFILE)
+	@kubectl get nodes --request-timeout=10s >/dev/null 2>&1 && echo "✔ EKS API 직접 연결 OK — kubectl 바로 사용" || echo "⚠ API 미도달 — pfSense DNS forwarder + Tailscale/VPN (mgmt 도달) 확인. break-glass: AWS 콘솔 → Session Manager → 점프호스트"
+
+# ---------- 환경별 전체 생성/삭제 (단일 env — up-all/down-all의 한쪽판, CONFIRM 필요) ----------
+up-prod: ## prod 전체 생성: app→apply→k8s→부트스트랩→VPN→handoff (~30분)
+	@printf "prod 전체를 생성합니다 (NAT/EKS/Aurora 과금 시작). helm/kubectl 필요. 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
+	$(MAKE) state-bucket
+	cd application && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve
+	cd $(PROD) && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve
+	$(MAKE) k8s-stack-prod PHASE=all
+	$(MAKE) bootstrap-prod
+	$(MAKE) vpn-prod
+	$(MAKE) onprem-handoff-prod
+	@echo "✔ prod 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 (연동 시 secrets/.eks-control-plane-dns-ip 로 DNS forwarder도)"
+
+up-stage: ## stage 전체 생성: app→apply→k8s→부트스트랩→VPN→handoff (~30분)
+	@printf "stage 전체를 생성합니다 (NAT/EKS/Aurora 과금 시작). helm/kubectl 필요. 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
+	$(MAKE) state-bucket
+	cd application && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve
+	cd $(STAGE) && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve
+	$(MAKE) k8s-stack-stage PHASE=all
+	$(MAKE) bootstrap-stage
+	$(MAKE) vpn-stage
+	$(MAKE) onprem-handoff-stage
+	@echo "✔ stage 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 (연동 시 secrets/.eks-control-plane-dns-ip 로 DNS forwarder도)"
+
+down-prod: ## prod 전체 삭제 (sb/prod/* 비밀·/sb/prod/* 파라미터 포함, application 스택은 보존)
+	@printf "⚠️  prod 전체를 삭제합니다 (복구 불가). application 스택은 유지 (stage와 공유). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
+	$(MAKE) state-bucket
+	@for s in $$(aws secretsmanager list-secrets --profile $(PROFILE) --region $(REGION) \
+	  --query "SecretList[?starts_with(Name,'sb/prod/')].Name" --output text); do \
+	  aws secretsmanager delete-secret --secret-id "$$s" --force-delete-without-recovery \
+	    --profile $(PROFILE) --region $(REGION) --query Name --output text; \
+	done
+	cd $(PROD) && $(TF_INIT) > /dev/null 2>&1 && terraform destroy -input=false -auto-approve
+	-@for p in $$(aws ssm get-parameters-by-path --path /sb/prod --recursive --profile $(PROFILE) --region $(REGION) \
+	  --query "Parameters[].Name" --output text); do \
+	  aws ssm delete-parameter --name "$$p" --profile $(PROFILE) --region $(REGION) && echo "deleted: $$p"; \
+	done
+	@echo "✔ prod 삭제 완료 (application 스택 유지 — 완전 제거는 down-all)"
+
+down-stage: ## stage 전체 삭제 (sb/stage/* 비밀·/sb/stage/* 파라미터 포함, application 스택은 보존)
+	@printf "⚠️  stage 전체를 삭제합니다 (복구 불가). application 스택은 유지 (prod와 공유). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
+	$(MAKE) state-bucket
+	@for s in $$(aws secretsmanager list-secrets --profile $(PROFILE) --region $(REGION) \
+	  --query "SecretList[?starts_with(Name,'sb/stage/')].Name" --output text); do \
+	  aws secretsmanager delete-secret --secret-id "$$s" --force-delete-without-recovery \
+	    --profile $(PROFILE) --region $(REGION) --query Name --output text; \
+	done
+	cd $(STAGE) && $(TF_INIT) > /dev/null 2>&1 && terraform destroy -input=false -auto-approve
+	-@for p in $$(aws ssm get-parameters-by-path --path /sb/stage --recursive --profile $(PROFILE) --region $(REGION) \
+	  --query "Parameters[].Name" --output text); do \
+	  aws ssm delete-parameter --name "$$p" --profile $(PROFILE) --region $(REGION) && echo "deleted: $$p"; \
+	done
+	@echo "✔ stage 삭제 완료 (application 스택 유지 — 완전 제거는 down-all)"
+
+# ---------- 전체 생성/삭제 한 줄 명령 (양쪽 env, CONFIRM 타이핑 필요) ----------
 up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부트스트랩→VPN 키/재기동 (~55분)
 	@printf "전체 인프라를 생성합니다 (약 55분, NAT/EKS/Aurora 과금 시작). 로컬에 helm/kubectl 필요. 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
 	$(MAKE) state-bucket # 백엔드 버킷 보장 (멱등 — 새 계정이면 생성, 있으면 skip)
@@ -180,11 +251,10 @@ up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부
 	$(MAKE) k8s-stack-prod PHASE=all
 	$(MAKE) k8s-stack-stage PHASE=all
 	$(MAKE) bootstrap-prod bootstrap-stage
-	@echo "--- VPN 키 등록(새 CMK) + 라우터 재기동 ---"
-	$(MAKE) vpn-keys-prod vpn-keys-stage
-	$(MAKE) vpn-restart
-	$(MAKE) vpn-eip
-	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신"
+	@echo "--- VPN 셋업 (키 등록 + 라우터 재기동 + EIP) ---"
+	$(MAKE) vpn-prod vpn-stage
+	$(MAKE) onprem-handoff-prod onprem-handoff-stage # 연동 환경이면 secrets/.eks-control-plane-dns-ip 생성, 비연동이면 자동 생략
+	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 (연동 시 secrets/.eks-control-plane-dns-ip 로 DNS forwarder도)"
 
 down-all: ## 전체 인프라 삭제: 비밀 정리→환경 병렬 destroy→application (복구 불가)
 	@printf "⚠️  전체 인프라를 삭제합니다 (복구 불가, CMK 삭제 대기 진입). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
@@ -199,7 +269,7 @@ down-all: ## 전체 인프라 삭제: 비밀 정리→환경 병렬 destroy→ap
 	( cd $(STAGE) && $(TF_INIT) > /dev/null 2>&1 && terraform destroy -input=false -auto-approve > /tmp/down-stage.log 2>&1 && echo "[stage] destroy 완료" || { echo "[stage] 실패 — /tmp/down-stage.log 확인"; exit 1; } ) & \
 	wait
 	cd application && $(TF_INIT) > /dev/null && terraform destroy -input=false -auto-approve
-	@echo "--- SSM 파라미터(/sb/*) 정리 ---"
+	@echo "--- SSM 파라미터 (/sb/*) 정리 ---"
 	-@for p in $$(aws ssm get-parameters-by-path --path /sb --recursive --profile $(PROFILE) --region $(REGION) \
 	  --query "Parameters[].Name" --output text); do \
 	  aws ssm delete-parameter --name "$$p" --profile $(PROFILE) --region $(REGION) && echo "deleted: $$p"; \

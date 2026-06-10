@@ -139,3 +139,21 @@ variable "vpn_onprem_cidrs" {
   description = "온프렘이 광고하는 대역 — AllowedIPs + return 라우트 대상"
   type        = list(string)
 }
+
+# --- 온프렘 Harbor/ArgoCD 연동 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
+# enabled=false면 연동 리소스를 만들지 않는다(EKS도 기존대로 private 컨트롤플레인 유지).
+# 대칭 은닉: private/db는 on-prem에 광고·노출 0, on-prem엔 mgmt/.253 단일 소스로만 보인다.
+variable "onprem_integration" {
+  description = "온프렘 Harbor(이미지 Pull)·ArgoCD(EKS 배포) 연동 설정"
+  type = object({
+    enabled               = optional(bool, false)
+    harbor_destinations   = optional(list(string), []) # 노드가 Pull할 Harbor IP /32 (예: ["10.0.0.10/32"])
+    argocd_source_cidrs   = optional(list(string), []) # ArgoCD→EKS API 소스 = pfSense NAT IP /32 (예: ["10.0.0.1/32"])
+    argocd_principal_arn  = optional(string, "")       # ArgoCD가 assume하는 IAM principal ARN (access entry)
+    argocd_namespaces     = optional(list(string), []) # access policy 한정 네임스페이스 (비우면 cluster 범위)
+    dns_resolver_ips      = optional(list(string), []) # on-prem DNS(pfSense) IP — outbound 포워딩 대상
+    dns_forward_domains   = optional(list(string), []) # on-prem 도메인 (예: ["corp.example"])
+    inbound_allowed_cidrs = optional(list(string), []) # inbound 엔드포인트 질의 허용 소스 (예: ["10.0.0.0/24"])
+  })
+  default = {}
+}

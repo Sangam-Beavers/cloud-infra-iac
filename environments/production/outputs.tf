@@ -108,7 +108,7 @@ output "api_origin_verify_ssm_param" {
   value       = module.api_gateway.origin_verify_ssm_param
 }
 
-# 엣지 (Phase 5-a, 통합) — 운영·edge-test 스크립트가 참조
+# 엣지 (환경 스택에 통합) — 운영 스크립트가 참조
 output "cloudfront_domain_name" {
   description = "CloudFront 배포 도메인 (https://<이 값>으로 접속)"
   value       = module.edge.cloudfront_domain_name
@@ -127,4 +127,9 @@ output "spa_bucket_name" {
 output "edge_route53_name_servers" {
   description = "엣지 커스텀 도메인 zone NS (도메인 지정 시) — 도메인 등록업체에 위임"
   value       = module.edge.route53_name_servers
+}
+
+output "resolver_inbound_ips" {
+  description = "Route53 Resolver inbound 엔드포인트 IP — pfSense 조건부 포워더(EKS 엔드포인트 도메인 → 이 IP)에 설정 (온프렘 연동 시)"
+  value       = try(module.route53_resolver[0].inbound_endpoint_ip_addresses, [])
 }
