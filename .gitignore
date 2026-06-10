@@ -119,3 +119,5 @@ $RECYCLE.BIN/
 !*.env.example
 secrets/*
 !secrets/*.example
+# Lambda 빌드 산출물 (archive_file이 소스에서 재생성 — 커밋 불필요)
+modules/*/lambda/*.zip

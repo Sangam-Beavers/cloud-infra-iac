@@ -275,3 +275,62 @@ module "aurora" {
   deletion_protection     = var.aurora_config.deletion_protection
   skip_final_snapshot     = var.aurora_config.skip_final_snapshot
 }
+
+# Cognito (운영/스테이징 IdP) — 프론트는 Hosted UI OAuth code 플로우, member는 provisioning (Admin*) + JWT 검증.
+# callback은 엣지 (CloudFront) 도메인 — PoC의 localhost를 교정. 식별자는 PS로 member에 주입.
+module "cognito" {
+  source = "../../modules/cognito"
+
+  name          = "sb-stage-gb"
+  domain_prefix = "sb-stage-gb-auth"
+
+  # 프론트 (../frontend) OIDC 설정과 일치: redirect=/auth/callback, post-logout=/login
+  callback_urls = ["https://${module.edge.cloudfront_domain_name}/auth/callback", "http://localhost:5173/auth/callback"]
+  logout_urls   = ["https://${module.edge.cloudfront_domain_name}/login", "http://localhost:5173/login"]
+
+  deletion_protection = "INACTIVE" # stage는 destroy 가능 / prod는 ACTIVE
+
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_issuer_url   = module.eks.oidc_issuer_url
+
+  # member 파드 SA — 앱 Deployment의 ServiceAccount와 정확히 일치해야 함 (앱팀과 확정)
+  member_service_account = { namespace = "sb-stage-app-ns", name = "member" }
+
+  member_ssm_prefix   = "/sb/stage/member"   # issuer/region/pool-id → ESO 런타임
+  frontend_ssm_prefix = "/sb/stage/frontend" # VITE_OIDC_* → Jenkins 빌드 타임
+}
+
+# 온프렘 Jenkins 프론트 배포용 IAM User (정적 키) — SPA 버킷 sync + 프론트 PS 읽기 + CloudFront 무효화.
+module "frontend_deploy_iam" {
+  source = "../../modules/frontend-deploy-iam"
+
+  name                       = "sb-stage-frontend-deploy"
+  spa_bucket                 = module.edge.spa_bucket_name
+  cloudfront_distribution_id = module.edge.cloudfront_distribution_id
+  frontend_ssm_prefix        = "/sb/stage/frontend"
+}
+
+# apply 시 Jenkins 배포 자격증명·대상을 secrets/.frontend-deploy-stage 에 자동 기록
+# (.eks-control-plane-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
+resource "local_sensitive_file" "frontend_deploy_handoff" {
+  filename        = "${path.root}/../../secrets/.frontend-deploy-stage"
+  file_permission = "0600"
+
+  content = join("\n", [
+    "# === 프론트 배포 (온프렘 Jenkins) — AWS 자격증명 + 대상 (stage) ===",
+    "# Jenkins credential에 ACCESS_KEY_ID/SECRET 등록 후 빌드 스텝:",
+    "#   1) PS (/sb/stage/frontend/*) 읽어 VITE_OIDC_* export",
+    "#   2) vite build",
+    "#   3) aws s3 sync dist/ s3://<SPA_BUCKET> --delete",
+    "#   4) cloudfront create-invalidation",
+    "# 키 회전: terraform taint module.frontend_deploy_iam.aws_iam_access_key.this && apply",
+    "STAGE_FRONTEND_DEPLOY_ACCESS_KEY_ID=${module.frontend_deploy_iam.access_key_id}",
+    "STAGE_FRONTEND_DEPLOY_SECRET_ACCESS_KEY=${module.frontend_deploy_iam.secret_access_key}",
+    "STAGE_FRONTEND_DEPLOY_REGION=${var.aws_region}",
+    "STAGE_FRONTEND_DEPLOY_PRINCIPAL_ARN=${module.frontend_deploy_iam.principal_arn}",
+    "STAGE_FRONTEND_SPA_BUCKET=${module.edge.spa_bucket_name}",
+    "STAGE_FRONTEND_CLOUDFRONT_DISTRIBUTION_ID=${module.edge.cloudfront_distribution_id}",
+    "STAGE_FRONTEND_SSM_PREFIX=/sb/stage/frontend",
+    "",
+  ])
+}
