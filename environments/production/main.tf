@@ -15,6 +15,8 @@ locals {
   onprem_enabled  = var.onprem_integration.enabled
   # Harbor 경로/SNAT는 목적지가 실제로 있을 때만 (빈 목적지로 켜면 user_data가 깨짐 방지)
   harbor_enabled = var.onprem_integration.enabled && length(var.onprem_integration.harbor_destinations) > 0
+  # Cognito OAuth callback 호스트 — 커스텀 도메인 지정 시 그것, 없으면 CloudFront 기본 도메인
+  edge_primary_host = var.edge_domain != "" ? var.edge_domain : module.edge.cloudfront_domain_name
 }
 
 provider "aws" {
@@ -82,7 +84,8 @@ module "jumphost" {
   vpc_cidr   = var.network.vpc_cidr
   subnet_ids = values(module.vpc.mgmt_subnet_ids)
 
-  kms_key_arn = module.kms.key_arn
+  kms_key_arn   = module.kms.key_arn
+  secret_prefix = "sb/prod/"
 
   instance_type = var.jumphost_config.instance_type
 
@@ -209,7 +212,8 @@ module "api_gateway" {
   kms_key_arn = module.kms.key_arn
   ssm_prefix  = "/sb/prod/api-gateway"
 
-  services = var.api_gateway_config.services
+  waf_rate_limit = var.api_gateway_config.waf_rate_limit
+  services       = var.api_gateway_config.services
 }
 
 # ---------------------------------------------------------------------------
@@ -278,4 +282,71 @@ module "aurora" {
   backup_retention_period = var.aurora_config.backup_retention_period
   deletion_protection     = var.aurora_config.deletion_protection
   skip_final_snapshot     = var.aurora_config.skip_final_snapshot
+}
+
+# Cognito (운영 IdP) — 프론트는 Hosted UI OAuth code 플로우, member는 provisioning (Admin*) + JWT 검증.
+# callback은 엣지 도메인 (커스텀 도메인 지정 시 그것, 없으면 CloudFront 기본). prod는 localhost 미허용.
+module "cognito" {
+  source = "../../modules/cognito"
+
+  name          = "sb-prod-gb"
+  domain_prefix = "sb-prod-gb-auth"
+
+  # 프론트 (../frontend) OIDC 설정과 일치: redirect=/auth/callback, post-logout=/login
+  callback_urls = ["https://${local.edge_primary_host}/auth/callback"]
+  logout_urls   = ["https://${local.edge_primary_host}/login"]
+
+  deletion_protection = "ACTIVE" # prod는 실수 삭제 방지 — destroy 시 콘솔/CLI로 수동 해제 필요
+
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_issuer_url   = module.eks.oidc_issuer_url
+
+  # member 파드 SA — 앱 Deployment의 ServiceAccount와 정확히 일치해야 함 (앱팀과 확정)
+  member_service_account = { namespace = "sb-prod-app-ns", name = "member" }
+
+  member_ssm_prefix   = "/sb/prod/member"   # issuer/region/pool-id → ESO 런타임
+  frontend_ssm_prefix = "/sb/prod/frontend" # VITE_OIDC_* → Jenkins 빌드 타임
+}
+
+# 온프렘 Jenkins 프론트 배포용 IAM User (정적 키) — SPA 버킷 sync + 프론트 PS 읽기 + CloudFront 무효화.
+module "frontend_deploy_iam" {
+  source = "../../modules/frontend-deploy-iam"
+
+  name                       = "sb-prod-frontend-deploy"
+  spa_bucket                 = module.edge.spa_bucket_name
+  cloudfront_distribution_id = module.edge.cloudfront_distribution_id
+  frontend_ssm_prefix        = "/sb/prod/frontend"
+}
+
+# 프론트 배포 대상 (비밀 아님) → PS. Jenkins가 빌드/배포 시 읽어 하드코딩을 피한다.
+# 같은 /sb/prod/frontend 경로지만 VITE_OIDC_* 는 cognito 모듈 소유, 배포 타겟 (버킷·distribution)은 edge 산출이라 여기서 기입.
+resource "aws_ssm_parameter" "frontend_deploy_targets" {
+  for_each = {
+    SPA_BUCKET                 = module.edge.spa_bucket_name
+    CLOUDFRONT_DISTRIBUTION_ID = module.edge.cloudfront_distribution_id
+  }
+
+  name  = "/sb/prod/frontend/${each.key}"
+  type  = "String"
+  value = each.value
+
+  tags = { Name = "sb-prod-frontend-${each.key}" }
+}
+
+# apply 시 Jenkins 배포 자격증명을 secrets/.frontend-deploy-prod 에 자동 기록
+# (.eks-control-plane-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
+resource "local_sensitive_file" "frontend_deploy_handoff" {
+  filename        = "${path.root}/../../secrets/.frontend-deploy-prod"
+  file_permission = "0600"
+
+  content = join("\n", [
+    "# === 프론트 배포 (온프렘 Jenkins) — AWS 자격증명 (prod) ===",
+    "# Vault에 넣어 Jenkins credential로 사용. 배포 대상 (버킷·distribution)은 SSM /sb/prod/frontend/* 에서 읽음.",
+    "# 키 회전: terraform apply -replace='module.frontend_deploy_iam.aws_iam_access_key.this'",
+    "PROD_FRONTEND_DEPLOY_ACCESS_KEY_ID=${module.frontend_deploy_iam.access_key_id}",
+    "PROD_FRONTEND_DEPLOY_SECRET_ACCESS_KEY=${module.frontend_deploy_iam.secret_access_key}",
+    "# PRINCIPAL_ARN은 식별·감사 참조용 — Jenkins credential엔 위 ACCESS/SECRET만 등록.",
+    "PROD_FRONTEND_DEPLOY_PRINCIPAL_ARN=${module.frontend_deploy_iam.principal_arn}",
+    "",
+  ])
 }

@@ -160,3 +160,46 @@ output "argocd_namespaces" {
   description = "ArgoCD access entry 한정 네임스페이스 — install-k8s-stack이 사전 생성 (한정 스코프는 네임스페이스를 못 만듦)"
   value       = var.onprem_integration.argocd_namespaces
 }
+
+# --- Cognito (운영 IdP) ---
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID (member COGNITO_USER_POOL_ID)"
+  value       = module.cognito.user_pool_id
+}
+
+output "cognito_client_id" {
+  description = "프론트 App Client ID (public)"
+  value       = module.cognito.client_id
+}
+
+output "cognito_issuer_url" {
+  description = "OIDC issuer — 백엔드 JWT 검증 issuer-uri"
+  value       = module.cognito.issuer_url
+}
+
+output "cognito_hosted_ui_domain" {
+  description = "Hosted UI 도메인 (프론트 로그인 진입)"
+  value       = module.cognito.hosted_ui_domain
+}
+
+output "cognito_member_role_arn" {
+  description = "member-service IRSA 역할 ARN (SA annotation용)"
+  value       = module.cognito.member_role_arn
+}
+
+# --- 온프렘 Jenkins 프론트 배포 IAM (정적 키 → Jenkins credential) ---
+output "frontend_deploy_principal_arn" {
+  description = "Jenkins 배포 IAM User ARN"
+  value       = module.frontend_deploy_iam.principal_arn
+}
+
+output "frontend_deploy_access_key_id" {
+  description = "Jenkins 배포 IAM 액세스 키 ID"
+  value       = module.frontend_deploy_iam.access_key_id
+}
+
+output "frontend_deploy_secret_access_key" {
+  description = "Jenkins 배포 IAM 시크릿 액세스 키 (Jenkins credential에 등록)"
+  value       = module.frontend_deploy_iam.secret_access_key
+  sensitive   = true
+}
