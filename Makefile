@@ -19,14 +19,14 @@
 #   4. make bootstrap-prod bootstrap-stage
 #        # Valkey AUTH (ROTATE→SET) + 논리 DB/서비스 계정/비밀 — 점프 호스트 SSM 원격 실행
 #   5. make vpn-prod vpn-stage
-#        # (통합) WG 키 SSM 등록 → 라우터 재기동 (키 반영) → 고정 EIP를 secrets/.wireguard-eip 기록
+#        # (통합) WG 키 SSM 등록 → 라우터 재기동 (키 반영) → 고정 EIP를 secrets/.wireguard-{env}-eip 기록
 #   6. make onprem-handoff-prod onprem-handoff-stage
-#        # (온프렘 연동 시) EKS endpoint·resolver inbound IP를 secrets/.eks-control-plane-dns-ip 기록
+#        # (온프렘 연동 시) EKS endpoint·resolver inbound IP를 secrets/.eks-cp-{env}-dns-ip 기록
 #
 # ── up-all 이후 온프렘 (pfSense) 수동 작업 — AWS 산출물을 온프렘에 반영 ──
-#   7. pfSense WireGuard Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 → 터널 성립
+#   7. pfSense WireGuard Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 → 터널 성립
 #   8. (온프렘 연동 시) pfSense DNS Resolver/Forwarder에 EKS 도메인 conditional forward 추가
-#        # → secrets/.eks-control-plane-dns-ip 의 resolver inbound IP. 온프렘 ArgoCD가 호스트명으로 private EKS API 접근
+#        # → secrets/.eks-cp-{env}-dns-ip 의 resolver inbound IP. 온프렘 ArgoCD가 호스트명으로 private EKS API 접근
 #
 # ── 단일 env만: make up-prod / up-stage (생성), down-prod / down-stage (삭제 — application 스택은 보존) ──
 #
@@ -162,18 +162,16 @@ _vpn-restart: # 내부: VPN_TAGS (쉼표구분) 태그의 라우터 종료 → A
 	  --query "Reservations[].Instances[].InstanceId" --output text); \
 	  [ -n "$$IDS" ] && aws ec2 terminate-instances --profile $(PROFILE) --region $(REGION) --instance-ids $$IDS --query "TerminatingInstances[].InstanceId" --output text || echo "($(VPN_TAGS) 실행 인스턴스 없음)"
 
-vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-eip에 기록 (배포된 env만 — pfSense Endpoint 설정용)
+vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-{env}-eip에 기록 (배포된 env만 — pfSense Endpoint 설정용)
 	@mkdir -p secrets
-	@printf '# === VPN 라우터 고정 EIP — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\n' > secrets/.wireguard-eip
-	@P=$$(cd $(PROD) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$P" ] && echo "PROD_VPN_EIP=$$P" >> secrets/.wireguard-eip || true
-	@S=$$(cd $(STAGE) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$S" ] && echo "STAGE_VPN_EIP=$$S" >> secrets/.wireguard-eip || true
-	@cat secrets/.wireguard-eip
+	@P=$$(cd $(PROD) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$P" ] && { printf '# === VPN 라우터 고정 EIP (prod) — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\nVPN_EIP=%s\n' "$$P" > secrets/.wireguard-prod-eip; cat secrets/.wireguard-prod-eip; } || true
+	@S=$$(cd $(STAGE) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$S" ] && { printf '# === VPN 라우터 고정 EIP (stage) — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\nVPN_EIP=%s\n' "$$S" > secrets/.wireguard-stage-eip; cat secrets/.wireguard-stage-eip; } || true
 
 # ---------- 온프렘 핸드오프 (배포 산출물 → secrets/.*) ----------
-onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip, .argocd-cluster)
+onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-cp-{env}-dns-ip, .argocd-cluster)
 	./scripts/onprem-handoff.sh prod
 
-onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip, .argocd-cluster)
+onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-cp-{env}-dns-ip, .argocd-cluster)
 	./scripts/onprem-handoff.sh stage
 
 # ---------- 클러스터 접근 (kubeconfig — 직접 주소, 평소 사용) ----------
@@ -195,7 +193,7 @@ up-prod: ## prod 전체 생성: app→apply→k8s→부트스트랩→VPN→hand
 	$(MAKE) bootstrap-prod
 	$(MAKE) vpn-prod
 	$(MAKE) onprem-handoff-prod
-	@echo "✔ prod 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 (연동 시 secrets/.eks-control-plane-dns-ip 로 DNS forwarder도)"
+	@echo "✔ prod 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 (연동 시 secrets/.eks-cp-{env}-dns-ip 로 DNS forwarder도)"
 
 up-stage: ## stage 전체 생성: app→apply→k8s→부트스트랩→VPN→handoff (~30분)
 	@printf "stage 전체를 생성합니다 (NAT/EKS/Aurora 과금 시작). helm/kubectl 필요. 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
@@ -206,7 +204,7 @@ up-stage: ## stage 전체 생성: app→apply→k8s→부트스트랩→VPN→ha
 	$(MAKE) bootstrap-stage
 	$(MAKE) vpn-stage
 	$(MAKE) onprem-handoff-stage
-	@echo "✔ stage 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 (연동 시 secrets/.eks-control-plane-dns-ip 로 DNS forwarder도)"
+	@echo "✔ stage 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 (연동 시 secrets/.eks-cp-{env}-dns-ip 로 DNS forwarder도)"
 
 down-prod: ## prod 전체 삭제 (sb/prod/* 비밀·/sb/prod/* 파라미터 포함, application 스택은 보존)
 	@printf "⚠️  prod 전체를 삭제합니다 (복구 불가). application 스택은 유지 (stage와 공유). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
@@ -253,8 +251,8 @@ up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부
 	$(MAKE) bootstrap-prod bootstrap-stage
 	@echo "--- VPN 셋업 (키 등록 + 라우터 재기동 + EIP) ---"
 	$(MAKE) vpn-prod vpn-stage
-	$(MAKE) onprem-handoff-prod onprem-handoff-stage # 연동 환경이면 secrets/.eks-control-plane-dns-ip 생성, 비연동이면 자동 생략
-	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/.wireguard-eip 의 EIP로 갱신 (연동 시 secrets/.eks-control-plane-dns-ip 로 DNS forwarder도)"
+	$(MAKE) onprem-handoff-prod onprem-handoff-stage # 연동 환경이면 secrets/.eks-cp-{env}-dns-ip 생성, 비연동이면 자동 생략
+	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 (연동 시 secrets/.eks-cp-{env}-dns-ip 로 DNS forwarder도)"
 
 down-all: ## 전체 인프라 삭제: 비밀 정리→환경 병렬 destroy→application (복구 불가)
 	@printf "⚠️  전체 인프라를 삭제합니다 (복구 불가, CMK 삭제 대기 진입). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
