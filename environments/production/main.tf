@@ -128,7 +128,7 @@ module "vpn" {
 }
 
 # 온프렘 ArgoCD가 EKS API에 인증할 전용 IAM User (연동 시에만). 출력 ARN을 eks access
-# entry에 매핑하고, 액세스 키는 onprem-handoff가 secrets/.argocd-cluster로 넘긴다.
+# entry에 매핑하고, 액세스 키는 onprem-handoff가 secrets/.argocd-<env>-cluster.yaml로 넘긴다.
 module "argocd_iam" {
   source = "../../modules/argocd-iam"
   count  = local.onprem_enabled ? 1 : 0

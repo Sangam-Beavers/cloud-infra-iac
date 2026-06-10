@@ -119,6 +119,3 @@ $RECYCLE.BIN/
 !*.env.example
 secrets/*
 !secrets/*.example
-# manifests: 값 채운 사본 (시크릿 포함 가능) 은 무시, .yaml.example 템플릿만 추적
-manifests/**/*.yaml
-!manifests/**/*.yaml.example

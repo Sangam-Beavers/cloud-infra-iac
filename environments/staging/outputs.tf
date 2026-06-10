@@ -134,7 +134,7 @@ output "resolver_inbound_ips" {
   value       = try(module.route53_resolver[0].inbound_endpoint_ip_addresses, [])
 }
 
-# --- 온프렘 ArgoCD 핸드오프 (onprem-handoff.sh가 secrets/.argocd-cluster로 기록) ---
+# --- 온프렘 ArgoCD 핸드오프 (onprem-handoff.sh가 secrets/.argocd-<env>-cluster.yaml로 기록) ---
 output "eks_cluster_ca" {
   description = "EKS 클러스터 CA (base64) — ArgoCD cluster Secret의 tlsClientConfig.caData"
   value       = module.eks.cluster_certificate_authority_data
