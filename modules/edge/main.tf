@@ -214,8 +214,8 @@ resource "aws_acm_certificate_validation" "this" {
   validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
-# CloudFront 액세스 로깅 (logging_config) 은 미설정 — 트래픽 가시성은 CLOUDFRONT-scope WAF 로그·CloudWatch로 확보.
-# 상세 access log가 필요하면 S3 로그 버킷 + logging_config를 추가한다.
+# CloudFront 액세스 로깅 (logging_config) 은 미설정 — 현재 가시성은 WAF CloudWatch 메트릭·sampled_requests 뿐 (전수 로그 아님, WAF logging_configuration 미설정).
+# 전수 가시성이 필요하면 WAF logging_configuration + CloudFront S3 로그 버킷을 추가한다.
 resource "aws_cloudfront_distribution" "this" {
   enabled             = true
   comment             = "${var.name} SPA"

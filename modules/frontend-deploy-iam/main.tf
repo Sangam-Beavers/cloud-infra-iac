@@ -39,17 +39,21 @@ resource "aws_iam_user_policy" "this" {
         Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.spa_bucket}/*"
       },
       {
-        # 빌드 타임에 VITE_OIDC_* 읽기 — 이 환경 프론트 파라미터만 (least-privilege)
-        Sid      = "FrontendParamsRead"
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
-        Resource = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter${var.frontend_ssm_prefix}/*"
+        # 빌드 타임에 VITE_OIDC_* 읽기 — 이 환경 프론트 파라미터만 (least-privilege).
+        # GetParametersByPath는 "경로" ARN (접미사 /* 없음)을, GetParameter는 개별 파라미터 (/*)를 검사하므로 둘 다 허용.
+        Sid    = "FrontendParamsRead"
+        Effect = "Allow"
+        Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+        Resource = [
+          "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter${var.frontend_ssm_prefix}",
+          "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter${var.frontend_ssm_prefix}/*",
+        ]
       },
       {
         # 배포 후 캐시 무효화 (이 distribution만)
         Sid      = "CloudFrontInvalidate"
         Effect   = "Allow"
-        Action   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
+        Action   = ["cloudfront:CreateInvalidation"]
         Resource = "arn:${data.aws_partition.current.partition}:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${var.cloudfront_distribution_id}"
       }
     ]

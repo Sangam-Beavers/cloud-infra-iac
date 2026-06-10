@@ -2,6 +2,8 @@ data "aws_region" "current" {}
 
 data "aws_caller_identity" "current" {}
 
+data "aws_partition" "current" {}
+
 # ---------------------------------------------------------------------------
 # 인터페이스 엔드포인트 — mgmt는 NAT 없는 격리 구역이므로 필수.
 #   ssm/ssmmessages/ec2messages: Session Manager 접속용
@@ -69,7 +71,7 @@ resource "aws_iam_role" "this" {
 
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.this.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 # bootstrap-db.sh 실행에 필요한 최소 권한
@@ -86,15 +88,15 @@ resource "aws_iam_role_policy" "bootstrap" {
         Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
         # rds!* = RDS 관리형 마스터 비밀, sb/* = 서비스 비밀 — 그 외 비밀은 접근 불가
         Resource = [
-          "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:rds!*",
-          "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_prefix}*",
+          "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:rds!*",
+          "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_prefix}*",
         ]
       },
       {
         Sid      = "UpsertServiceSecrets"
         Effect   = "Allow"
         Action   = ["secretsmanager:CreateSecret", "secretsmanager:PutSecretValue", "secretsmanager:TagResource"]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_prefix}*"
+        Resource = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_prefix}*"
       },
       {
         Sid      = "GetRandomPassword"

@@ -2,6 +2,8 @@ data "aws_region" "current" {}
 
 data "aws_caller_identity" "current" {}
 
+data "aws_partition" "current" {}
+
 # 검증된 구성과 동일한 Ubuntu (apt 기반 user_data — AL2023엔 frr 패키지 없음)
 data "aws_ami" "ubuntu_arm" {
   most_recent = true
@@ -108,7 +110,7 @@ resource "aws_iam_role" "this" {
 
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.this.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_role_policy" "self_healing" {
@@ -125,7 +127,7 @@ resource "aws_iam_role_policy" "self_healing" {
         Action = ["ec2:ReplaceRoute", "ec2:CreateRoute"]
         Resource = [
           for rtb in concat(var.return_route_table_ids, var.app_route_table_ids) :
-          "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:route-table/${rtb}"
+          "arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:route-table/${rtb}"
         ]
       },
       {
@@ -149,7 +151,7 @@ resource "aws_iam_role_policy" "self_healing" {
         Sid      = "ReadWireguardKeys"
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
-        Resource = "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"
+        Resource = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"
       },
       {
         Sid      = "DecryptWithEnvCmk"

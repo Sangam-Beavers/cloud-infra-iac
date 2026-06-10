@@ -82,7 +82,8 @@ module "jumphost" {
   vpc_cidr   = var.network.vpc_cidr
   subnet_ids = values(module.vpc.mgmt_subnet_ids)
 
-  kms_key_arn = module.kms.key_arn
+  kms_key_arn   = module.kms.key_arn
+  secret_prefix = "sb/stage/"
 
   instance_type = var.jumphost_config.instance_type
 
@@ -205,7 +206,8 @@ module "api_gateway" {
   kms_key_arn = module.kms.key_arn
   ssm_prefix  = "/sb/stage/api-gateway"
 
-  services = var.api_gateway_config.services
+  waf_rate_limit = var.api_gateway_config.waf_rate_limit
+  services       = var.api_gateway_config.services
 }
 
 # ---------------------------------------------------------------------------
@@ -310,6 +312,21 @@ module "frontend_deploy_iam" {
   frontend_ssm_prefix        = "/sb/stage/frontend"
 }
 
+# 프론트 배포 대상 (비밀 아님) → PS. Jenkins가 빌드/배포 시 읽어 하드코딩을 피한다.
+# 같은 /sb/stage/frontend 경로지만 VITE_OIDC_* 는 cognito 모듈 소유, 배포 타겟 (버킷·distribution)은 edge 산출이라 여기서 기입.
+resource "aws_ssm_parameter" "frontend_deploy_targets" {
+  for_each = {
+    SPA_BUCKET                 = module.edge.spa_bucket_name
+    CLOUDFRONT_DISTRIBUTION_ID = module.edge.cloudfront_distribution_id
+  }
+
+  name  = "/sb/stage/frontend/${each.key}"
+  type  = "String"
+  value = each.value
+
+  tags = { Name = "sb-stage-frontend-${each.key}" }
+}
+
 # apply 시 Jenkins 배포 자격증명·대상을 secrets/.frontend-deploy-stage 에 자동 기록
 # (.eks-control-plane-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
 resource "local_sensitive_file" "frontend_deploy_handoff" {
@@ -317,20 +334,13 @@ resource "local_sensitive_file" "frontend_deploy_handoff" {
   file_permission = "0600"
 
   content = join("\n", [
-    "# === 프론트 배포 (온프렘 Jenkins) — AWS 자격증명 + 대상 (stage) ===",
-    "# Jenkins credential에 ACCESS_KEY_ID/SECRET 등록 후 빌드 스텝:",
-    "#   1) PS (/sb/stage/frontend/*) 읽어 VITE_OIDC_* export",
-    "#   2) vite build",
-    "#   3) aws s3 sync dist/ s3://<SPA_BUCKET> --delete",
-    "#   4) cloudfront create-invalidation",
-    "# 키 회전: terraform taint module.frontend_deploy_iam.aws_iam_access_key.this && apply",
+    "# === 프론트 배포 (온프렘 Jenkins) — AWS 자격증명 (stage) ===",
+    "# Vault에 넣어 Jenkins credential로 사용. 배포 대상 (버킷·distribution)은 SSM /sb/stage/frontend/* 에서 읽음.",
+    "# 키 회전: terraform apply -replace='module.frontend_deploy_iam.aws_iam_access_key.this'",
     "STAGE_FRONTEND_DEPLOY_ACCESS_KEY_ID=${module.frontend_deploy_iam.access_key_id}",
     "STAGE_FRONTEND_DEPLOY_SECRET_ACCESS_KEY=${module.frontend_deploy_iam.secret_access_key}",
-    "STAGE_FRONTEND_DEPLOY_REGION=${var.aws_region}",
+    "# PRINCIPAL_ARN은 식별·감사 참조용 — Jenkins credential엔 위 ACCESS/SECRET만 등록.",
     "STAGE_FRONTEND_DEPLOY_PRINCIPAL_ARN=${module.frontend_deploy_iam.principal_arn}",
-    "STAGE_FRONTEND_SPA_BUCKET=${module.edge.spa_bucket_name}",
-    "STAGE_FRONTEND_CLOUDFRONT_DISTRIBUTION_ID=${module.edge.cloudfront_distribution_id}",
-    "STAGE_FRONTEND_SSM_PREFIX=/sb/stage/frontend",
     "",
   ])
 }
