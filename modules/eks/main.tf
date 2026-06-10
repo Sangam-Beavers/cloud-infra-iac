@@ -271,12 +271,12 @@ resource "aws_eks_addon" "coredns" {
 
 # ---------------------------------------------------------------------------
 # on-prem ArgoCD용 access entry — IAM principal을 RBAC에 매핑 (authentication_mode=API).
-# principal ARN이 비어있으면 생성하지 않는다. RBAC는 argocd_access_policy_arn (기본 Edit)로
+# argocd_enabled=false면 생성하지 않는다. RBAC는 argocd_access_policy_arn (기본 Edit)로
 # 부여하고, argocd_access_namespaces 지정 시 해당 네임스페이스로 한정 (least-privilege).
 # ---------------------------------------------------------------------------
 
 resource "aws_eks_access_entry" "argocd" {
-  count = var.argocd_principal_arn != "" ? 1 : 0
+  count = var.argocd_enabled ? 1 : 0
 
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = var.argocd_principal_arn
@@ -288,7 +288,7 @@ resource "aws_eks_access_entry" "argocd" {
 }
 
 resource "aws_eks_access_policy_association" "argocd" {
-  count = var.argocd_principal_arn != "" ? 1 : 0
+  count = var.argocd_enabled ? 1 : 0
 
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = var.argocd_principal_arn

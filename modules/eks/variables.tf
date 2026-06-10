@@ -105,8 +105,14 @@ variable "eso_secret_prefix" {
 }
 
 # --- on-prem ArgoCD용 access entry ---
+variable "argocd_enabled" {
+  description = "ArgoCD access entry 생성 여부 — count 게이트. principal ARN은 모듈이 만드는 IAM User의 apply 시점 값이라 count로 못 쓰므로, plan 시점에 아는 bool (onprem_integration.enabled)로 고정한다"
+  type        = bool
+  default     = false
+}
+
 variable "argocd_principal_arn" {
-  description = "on-prem ArgoCD가 assume하는 IAM principal ARN — access entry로 RBAC에 매핑. 비우면 access entry를 만들지 않음"
+  description = "on-prem ArgoCD가 assume하는 IAM principal ARN — argocd_enabled=true일 때 access entry로 RBAC에 매핑"
   type        = string
   default     = ""
 }

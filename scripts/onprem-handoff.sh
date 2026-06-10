@@ -7,10 +7,12 @@
 # 사용법: ./onprem-handoff.sh <prod|stage>
 # 생성물:
 #   secrets/.eks-control-plane-dns-ip  — pfSense DNS conditional forwarder 설정용
+#   secrets/.argocd-cluster            — 온프렘 ArgoCD cluster 등록 자격증명 (연동 시)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 ENV=${1:?usage: onprem-handoff.sh <prod|stage>}
+REGION="${REGION:-ap-northeast-2}"
 cd "$(dirname "$0")/.."
 
 case "$ENV" in
@@ -60,3 +62,54 @@ mv "$tmp" "$OUT"
 
 echo "기록됨: $OUT ($ENV)"
 cat "$OUT"
+
+# ---------------------------------------------------------------------------
+# ArgoCD cluster 등록 자격증명 — 온프렘 ArgoCD가 이 EKS를 배포 대상으로 등록할 때 쓰는 값.
+# argocd-iam 모듈 (연동 시) 이 만든 전용 IAM User 키 + 클러스터 접속 정보를 한 파일에 모은다.
+# ---------------------------------------------------------------------------
+ARN=$(cd "$TF_DIR" && terraform output -raw argocd_principal_arn 2>/dev/null || true)
+
+# principal이 비면 ArgoCD 미연동 (argocd-iam 모듈 미생성) — 핸드오프할 게 없으니 생략.
+if [ -z "$ARN" ]; then
+  echo "ArgoCD 미연동 ($ENV) — argocd-iam 없음, cluster 핸드오프 생략"
+  exit 0
+fi
+
+AKID=$(cd "$TF_DIR" && terraform output -raw argocd_access_key_id)
+SECRET=$(cd "$TF_DIR" && terraform output -raw argocd_secret_access_key)
+CLUSTER=$(cd "$TF_DIR" && terraform output -raw eks_cluster_name)
+CA=$(cd "$TF_DIR" && terraform output -raw eks_cluster_ca)
+NS=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[] "')
+
+ARGO="secrets/.argocd-cluster"
+
+# 헤더 (환경 무관 설명)는 1회만 생성 — prod/stage가 한 파일에 prefix로 공존
+if [ ! -f "$ARGO" ]; then
+  cat > "$ARGO" <<'HDR'
+# === ArgoCD Cluster 등록 자격증명 (prod/stage 공존) ===
+# 온프렘 ArgoCD에서 이 값으로 cluster Secret을 조립해 등록한다.
+# manifests/argocd/cluster-secret.yaml.example 한 파일에 모두 채워 ArgoCD 네임스페이스에 apply:
+#   server ← <ENV>_EKS_ENDPOINT_HOST, clusterName ← <ENV>_EKS_CLUSTER_NAME, caData ← <ENV>_EKS_CA_DATA
+#   execProviderConfig.env ← <ENV>_ARGOCD_ACCESS_KEY_ID / _SECRET_ACCESS_KEY / <ENV>_EKS_REGION
+# 주의: <ENV>_ARGOCD_NAMESPACES는 한정 스코프라 ArgoCD가 직접 못 만든다 → install-k8s-stack이 사전 생성.
+# 키 회전: terraform taint module.argocd_iam[0].aws_iam_access_key.this && apply 후 이 스크립트 재실행.
+HDR
+fi
+
+# 이 환경 줄만 갱신하고 다른 환경 (prefix) 줄은 보존 ($HOST는 상단에서 계산된 엔드포인트 호스트)
+tmp=$(mktemp)
+grep -v "^${ENVUP}_" "$ARGO" > "$tmp" || true
+{
+  echo "${ENVUP}_ARGOCD_PRINCIPAL_ARN=$ARN"
+  echo "${ENVUP}_ARGOCD_ACCESS_KEY_ID=$AKID"
+  echo "${ENVUP}_ARGOCD_SECRET_ACCESS_KEY=$SECRET"
+  echo "${ENVUP}_ARGOCD_NAMESPACES=$NS"
+  echo "${ENVUP}_EKS_CLUSTER_NAME=$CLUSTER"
+  echo "${ENVUP}_EKS_ENDPOINT_HOST=$HOST"
+  echo "${ENVUP}_EKS_REGION=$REGION"
+  echo "${ENVUP}_EKS_CA_DATA=$CA"
+} >> "$tmp"
+mv "$tmp" "$ARGO"
+chmod 600 "$ARGO"
+
+echo "기록됨: $ARGO ($ENV) — 시크릿 포함, 600 권한 (git 무시됨)"

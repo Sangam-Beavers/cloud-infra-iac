@@ -133,3 +133,30 @@ output "resolver_inbound_ips" {
   description = "Route53 Resolver inbound 엔드포인트 IP — pfSense 조건부 포워더 (EKS 엔드포인트 도메인 → 이 IP)에 설정 (온프렘 연동 시)"
   value       = try(module.route53_resolver[0].inbound_endpoint_ip_addresses, [])
 }
+
+# --- 온프렘 ArgoCD 핸드오프 (onprem-handoff.sh가 secrets/.argocd-cluster로 기록) ---
+output "eks_cluster_ca" {
+  description = "EKS 클러스터 CA (base64) — ArgoCD cluster Secret의 tlsClientConfig.caData"
+  value       = module.eks.cluster_certificate_authority_data
+}
+
+output "argocd_principal_arn" {
+  description = "ArgoCD 전용 IAM User ARN (연동 시) — access entry에 매핑됨"
+  value       = try(module.argocd_iam[0].principal_arn, "")
+}
+
+output "argocd_access_key_id" {
+  description = "ArgoCD IAM 액세스 키 ID (연동 시)"
+  value       = try(module.argocd_iam[0].access_key_id, "")
+}
+
+output "argocd_secret_access_key" {
+  description = "ArgoCD IAM 시크릿 액세스 키 (연동 시) — 온프렘 ArgoCD 자격증명"
+  value       = try(module.argocd_iam[0].secret_access_key, "")
+  sensitive   = true
+}
+
+output "argocd_namespaces" {
+  description = "ArgoCD access entry 한정 네임스페이스 — install-k8s-stack이 사전 생성 (한정 스코프는 네임스페이스를 못 만듦)"
+  value       = var.onprem_integration.argocd_namespaces
+}

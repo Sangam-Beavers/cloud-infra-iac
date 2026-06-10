@@ -170,10 +170,10 @@ vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-eip에 기록 (배포된 env
 	@cat secrets/.wireguard-eip
 
 # ---------- 온프렘 핸드오프 (배포 산출물 → secrets/.*) ----------
-onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip 등)
+onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip, .argocd-cluster)
 	./scripts/onprem-handoff.sh prod
 
-onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip 등)
+onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-control-plane-dns-ip, .argocd-cluster)
 	./scripts/onprem-handoff.sh stage
 
 # ---------- 클러스터 접근 (kubeconfig — 직접 주소, 평소 사용) ----------

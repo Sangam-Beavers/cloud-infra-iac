@@ -8,7 +8,7 @@
 # (파드가 VPC IP → ALB target-type=ip 직접 연동). 비밀은 AWS Secrets Manager + ESO.
 #
 # 사용법: ./install-k8s-stack.sh <prod|stage> [phase] [profile]
-#   phase: cilium | alb | eso | all (기본 all)
+#   phase: cilium | alb | eso | ns | all (기본 all). ns=ArgoCD 배포 네임스페이스 사전 생성
 # 전제: 해당 환경 apply 완료 (cni=cilium), terraform output 사용 가능
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -156,12 +156,27 @@ EOF
   echo "[✔] ESO + ClusterSecretStore 설치 완료"
 }
 
+ensure_app_namespaces() {
+  # 온프렘 ArgoCD는 네임스페이스 한정 Edit으로 접근한다 — 한정 스코프는 네임스페이스를
+  # '생성'하지 못하므로 (cluster-scoped), 배포 대상 네임스페이스를 미리 만들어 둔다 (멱등).
+  local ns_csv
+  ns_csv=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[]" ' || true)
+  [ -n "$ns_csv" ] || { echo "=== ArgoCD 배포 네임스페이스 없음 (argocd_namespaces 비어있음) — 생략 ==="; return 0; }
+  echo "=== ArgoCD 배포 네임스페이스 사전 생성 ==="
+  local ns
+  for ns in ${ns_csv//,/ }; do
+    [ -n "$ns" ] || continue
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+  done
+}
+
 case "$PHASE" in
   cilium) install_cilium ;;
   alb)    install_alb ;;
   eso)    install_eso ;;
-  all)    install_cilium; install_alb; install_eso ;;
-  *) echo "ERROR: phase는 cilium|alb|eso|all"; exit 1 ;;
+  ns)     ensure_app_namespaces ;;
+  all)    install_cilium; install_alb; install_eso; ensure_app_namespaces ;;
+  *) echo "ERROR: phase는 cilium|alb|eso|ns|all"; exit 1 ;;
 esac
 
 echo "✔ ${ENV}: k8s 스택 (${PHASE}) 설치 완료"

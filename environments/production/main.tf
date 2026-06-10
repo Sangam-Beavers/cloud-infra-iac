@@ -127,6 +127,15 @@ module "vpn" {
   instance_extra_tags = { awsApplication = local.application_arn }
 }
 
+# 온프렘 ArgoCD가 EKS API에 인증할 전용 IAM User (연동 시에만). 출력 ARN을 eks access
+# entry에 매핑하고, 액세스 키는 onprem-handoff가 secrets/.argocd-cluster로 넘긴다.
+module "argocd_iam" {
+  source = "../../modules/argocd-iam"
+  count  = local.onprem_enabled ? 1 : 0
+
+  name = "sb-prod-argocd"
+}
+
 module "eks" {
   source = "../../modules/eks"
 
@@ -153,8 +162,10 @@ module "eks" {
   endpoint_public_access_cidrs = var.eks_config.endpoint_public_access_cidrs
   api_allowed_cidrs            = concat(values(var.network.mgmt), local.onprem_enabled ? var.onprem_integration.argocd_source_cidrs : [])
 
-  # ArgoCD용 access entry (principal ARN 있을 때만 생성)
-  argocd_principal_arn     = local.onprem_enabled ? var.onprem_integration.argocd_principal_arn : ""
+  # ArgoCD용 access entry (연동 시 argocd-iam 모듈이 만든 전용 User를 매핑).
+  # count 게이트는 plan 시점 bool로 (ARN은 apply 시점 값이라 count로 못 씀).
+  argocd_enabled           = local.onprem_enabled
+  argocd_principal_arn     = local.onprem_enabled ? module.argocd_iam[0].principal_arn : ""
   argocd_access_namespaces = var.onprem_integration.argocd_namespaces
 
   min_size = var.eks_config.min_size

@@ -8,6 +8,11 @@ output "cluster_endpoint" {
   value       = aws_eks_cluster.this.endpoint
 }
 
+output "cluster_certificate_authority_data" {
+  description = "클러스터 CA 인증서 (base64) — kubeconfig·ArgoCD cluster Secret의 caData"
+  value       = aws_eks_cluster.this.certificate_authority[0].data
+}
+
 output "cluster_security_group_id" {
   description = "클러스터 보안 그룹 ID (EKS 자동 생성)"
   value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id

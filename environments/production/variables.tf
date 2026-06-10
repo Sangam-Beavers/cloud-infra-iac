@@ -151,8 +151,7 @@ variable "onprem_integration" {
     enabled               = optional(bool, false)
     harbor_destinations   = optional(list(string), []) # 노드가 Pull할 Harbor IP /32 (예: ["10.0.0.10/32"])
     argocd_source_cidrs   = optional(list(string), []) # ArgoCD→EKS API 소스 = pfSense NAT IP /32 (예: ["10.0.0.1/32"])
-    argocd_principal_arn  = optional(string, "")       # ArgoCD가 assume하는 IAM principal ARN (access entry)
-    argocd_namespaces     = optional(list(string), []) # access policy 한정 네임스페이스 (비우면 cluster 범위)
+    argocd_namespaces     = optional(list(string), []) # access policy 한정 네임스페이스 (비우면 cluster 범위). principal은 argocd-iam 모듈이 생성
     dns_resolver_ips      = optional(list(string), []) # on-prem DNS(pfSense) IP — outbound 포워딩 대상
     dns_forward_domains   = optional(list(string), []) # on-prem 도메인 (예: ["corp.example"])
     inbound_allowed_cidrs = optional(list(string), []) # inbound 엔드포인트 질의 허용 소스 (예: ["10.0.0.0/24"])
