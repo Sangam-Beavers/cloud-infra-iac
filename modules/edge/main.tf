@@ -11,6 +11,7 @@ locals {
 # SPA 정적 자산 버킷 — 비공개. 버킷명은 전역 유일이어야 해 prefix로 AWS가 suffix를 붙인다
 resource "aws_s3_bucket" "spa" {
   bucket_prefix = "${var.name}-spa-"
+  force_destroy = true # 정적 SPA 자산 (재배포 가능) — destroy 시 객체째 삭제 (down-*가 비어있지 않은 버킷에 막히지 않게)
 }
 
 resource "aws_s3_bucket_public_access_block" "spa" {
@@ -63,7 +64,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 }
 
 # CloudFront 앞단 방어 (CLOUDFRONT scope = us-east-1 전용): AWS 관리형 3종 + IP당 rate-limit.
-# ALB regional WAF는 origin-lock 전용이고, 무거운 방어 룰셋은 여기(엣지)서 담당한다.
+# ALB regional WAF는 origin-lock 전용이고, 무거운 방어 룰셋은 여기 (엣지)서 담당한다.
 resource "aws_wafv2_web_acl" "cf" {
   provider = aws.us_east_1
   name     = "${var.name}-cf-waf"
@@ -213,6 +214,8 @@ resource "aws_acm_certificate_validation" "this" {
   validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
+# CloudFront 액세스 로깅 (logging_config) 은 미설정 — 트래픽 가시성은 CLOUDFRONT-scope WAF 로그·CloudWatch로 확보.
+# 상세 access log가 필요하면 S3 로그 버킷 + logging_config를 추가한다.
 resource "aws_cloudfront_distribution" "this" {
   enabled             = true
   comment             = "${var.name} SPA"
@@ -304,7 +307,7 @@ resource "aws_cloudfront_distribution" "this" {
   }
 }
 
-# 이 배포(OAC)가 보낸 요청에만 S3 읽기 허용 (SourceArn 조건으로 다른 배포 차단)
+# 이 배포 (OAC)가 보낸 요청에만 S3 읽기 허용 (SourceArn 조건으로 다른 배포 차단)
 resource "aws_s3_bucket_policy" "spa" {
   bucket = aws_s3_bucket.spa.id
   policy = jsonencode({

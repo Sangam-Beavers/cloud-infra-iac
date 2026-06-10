@@ -5,7 +5,7 @@
 # 엔드포인트는 mgmt 서브넷에만 둔다 (on-prem 대면 tier 일관 유지).
 # ---------------------------------------------------------------------------
 
-# inbound 엔드포인트 SG — on-prem에서 오는 DNS 질의(53)만 허용
+# inbound 엔드포인트 SG — on-prem에서 오는 DNS 질의 (53)만 허용
 resource "aws_security_group" "inbound" {
   name        = "${var.name}-resolver-in-sg"
   description = "Route53 Resolver inbound endpoint: DNS 53 from on-prem"

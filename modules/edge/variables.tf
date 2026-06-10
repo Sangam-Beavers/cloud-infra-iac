@@ -10,7 +10,7 @@ variable "price_class" {
 }
 
 variable "default_root_object" {
-  description = "루트(/) 요청 시 반환할 객체"
+  description = "루트 (/) 요청 시 반환할 객체"
   type        = string
   default     = "index.html"
 }
@@ -22,7 +22,7 @@ variable "spa_fallback" {
 }
 
 variable "api_origin" {
-  description = "(선택) CloudFront api_path_pattern을 보낼 API Gateway 오리진. null이면 정적(S3) 전용. domain_name=execute-api 호스트, origin_verify_secret=X-Origin-Verify 헤더 값(ALB regional WAF origin-lock과 대조)"
+  description = "(선택) CloudFront api_path_pattern을 보낼 API Gateway 오리진. null이면 정적 (S3) 전용. domain_name=execute-api 호스트, origin_verify_secret=X-Origin-Verify 헤더 값 (ALB regional WAF origin-lock과 대조)"
   type = object({
     domain_name          = string
     origin_verify_secret = string

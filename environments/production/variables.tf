@@ -61,20 +61,22 @@ variable "jumphost_config" {
 variable "eks_config" {
   description = "EKS 노드 그룹 사양 (Graviton이면 이미지 arm64 빌드 필요)"
   type = object({
-    instance_types         = list(string)
-    desired_size           = number
-    min_size               = number
-    max_size               = number
-    endpoint_public_access = optional(bool, true) # false = private-only (kubectl은 점프호스트 터널 경유)
+    instance_types               = list(string)
+    desired_size                 = number
+    min_size                     = number
+    max_size                     = number
+    endpoint_public_access       = optional(bool, false)      # 기본 private-only (kubectl은 make kubeconfig-*, 끊기면 AWS 콘솔). true면 아래 cidrs 필수
+    endpoint_public_access_cidrs = optional(list(string), []) # public 활성 시 허용 CIDR — 비우면 precondition이 막음 (빈 리스트 = 0.0.0.0/0)
   })
 }
 
 variable "aurora_config" {
-  description = "Aurora 사양 — clusters: 클러스터명 → 논리 DB(서비스) 목록"
+  description = "Aurora 사양 — clusters: 클러스터명 → 논리 DB (서비스) 목록"
   type = object({
     clusters                = map(list(string))
-    instance_count          = number              # 1 = writer만, 2+ = writer + readers
-    serverless_max_acu      = optional(number, 4) # Serverless v2 최대 ACU (인스턴스당)
+    instance_count          = number                # 1 = writer만, 2+ = writer + readers
+    serverless_min_acu      = optional(number, 0.5) # Serverless v2 최소 ACU (인스턴스당, 유휴 과금 기준)
+    serverless_max_acu      = optional(number, 4)   # Serverless v2 최대 ACU (인스턴스당)
     backup_retention_period = optional(number, 1)
     deletion_protection     = optional(bool, false) # 운영 전환 시 true — destroy/콘솔 실수 삭제 차단
     skip_final_snapshot     = optional(bool, true)  # 운영 전환 시 false — 삭제 시 최종 스냅샷 보존
@@ -82,7 +84,7 @@ variable "aurora_config" {
 }
 
 variable "api_gateway_config" {
-  description = "API Gateway origin 사양 — services: 서비스명 → 경로/포트/헬스체크/우선순위, waf_rate_limit: IP당 5분 상한"
+  description = "API Gateway origin 사양 — services: 서비스명 → 경로/포트/헬스체크/우선순위, waf_rate_limit: 엣지 (CloudFront) WAF IP당 5분 상한"
   type = object({
     waf_rate_limit = optional(number, 2000)
     services = map(object({
@@ -141,10 +143,10 @@ variable "vpn_onprem_cidrs" {
 }
 
 # --- 온프렘 Harbor/ArgoCD 연동 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
-# enabled=false면 연동 리소스를 만들지 않는다(EKS도 기존대로 private 컨트롤플레인 유지).
+# enabled=false면 연동 리소스를 만들지 않는다 (EKS도 기존대로 private 컨트롤플레인 유지).
 # 대칭 은닉: private/db는 on-prem에 광고·노출 0, on-prem엔 mgmt/.253 단일 소스로만 보인다.
 variable "onprem_integration" {
-  description = "온프렘 Harbor(이미지 Pull)·ArgoCD(EKS 배포) 연동 설정"
+  description = "온프렘 Harbor (이미지 Pull)·ArgoCD(EKS 배포) 연동 설정"
   type = object({
     enabled               = optional(bool, false)
     harbor_destinations   = optional(list(string), []) # 노드가 Pull할 Harbor IP /32 (예: ["10.0.0.10/32"])

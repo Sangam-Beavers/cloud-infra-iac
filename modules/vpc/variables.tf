@@ -15,7 +15,7 @@ variable "public_subnets" {
 }
 
 variable "private_subnets" {
-  description = "Private(앱) 서브넷: AZ 접미사 → CIDR"
+  description = "Private (앱) 서브넷: AZ 접미사 → CIDR"
   type        = map(string)
   default     = {}
 }
@@ -27,7 +27,7 @@ variable "db_subnets" {
 }
 
 variable "mgmt_subnets" {
-  description = "관리(mgmt) 서브넷: AZ 접미사 → CIDR (격리, 점프 호스트는 SSM 엔드포인트로 접속)"
+  description = "관리 (mgmt) 서브넷: AZ 접미사 → CIDR (격리, 점프 호스트는 SSM 엔드포인트로 접속)"
   type        = map(string)
   default     = {}
 }
@@ -45,7 +45,7 @@ variable "private_subnet_extra_tags" {
 }
 
 variable "nat_gateway_strategy" {
-  description = "private 서브넷 아웃바운드용 NAT 전략: none(없음) | single(1개) | per_az(AZ별 1개)"
+  description = "private 서브넷 아웃바운드용 NAT 전략: none (없음) | single(1개) | per_az(AZ별 1개)"
   type        = string
   default     = "none"
 

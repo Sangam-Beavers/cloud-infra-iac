@@ -29,6 +29,6 @@ output "security_group_id" {
 }
 
 output "databases" {
-  description = "이 클러스터의 논리 DB(서비스) 목록"
+  description = "이 클러스터의 논리 DB (서비스) 목록"
   value       = var.databases
 }

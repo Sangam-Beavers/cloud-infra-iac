@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # private-only EKS에 Cilium + AWS Load Balancer Controller + External Secrets를
-# 설치한다. 점프호스트 SSM 포트포워딩으로 클러스터 API에 접속하므로
+# 설치한다. 점프 호스트 SSM 포트포워딩으로 클러스터 API에 접속하므로
 # 로컬에 helm/kubectl 만 있으면 된다 (클러스터 안엔 아무것도 설치 안 함).
 #
 # 개발 스택과 동일: Cilium (kube-proxy replacement, Hubble). 단 IPAM은 ENI 모드
@@ -9,7 +9,7 @@
 #
 # 사용법: ./install-k8s-stack.sh <prod|stage> [phase] [profile]
 #   phase: cilium | alb | eso | all (기본 all)
-# 전제: 해당 환경 apply 완료(cni=cilium), terraform output 사용 가능
+# 전제: 해당 환경 apply 완료 (cni=cilium), terraform output 사용 가능
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -38,11 +38,11 @@ JUMP=$(aws ec2 describe-instances --profile "$PROFILE" --region $REGION \
   --query "Reservations[0].Instances[0].InstanceId" --output text)
 [ "$JUMP" != "None" ] || { echo "ERROR: sb-${ENV}-jump 실행 인스턴스 없음"; exit 1; }
 
-# --- 점프호스트 SSM 터널 + 전용 kubeconfig ---
+# --- 점프 호스트 SSM 터널 + 전용 kubeconfig ---
 KUBECONFIG_FILE=$(mktemp)
 export KUBECONFIG="$KUBECONFIG_FILE"
 TUNNEL_PID=""
-# 정리 훅을 즉시 등록 — 이후 어느 단계(터널 기동 전 update-kubeconfig 등)에서 실패해도
+# 정리 훅을 즉시 등록 — 이후 어느 단계 (터널 기동 전 update-kubeconfig 등)에서 실패해도
 # kubeconfig 임시파일/터널이 누수되지 않도록. SSM 터널은 aws CLI가 session-manager-plugin
 # 자식 프로세스를 fork하므로, 부모만 kill하면 포트가 고아로 남는다 → 자식까지 reap한다.
 cleanup() {
@@ -128,7 +128,7 @@ install_eso() {
   kubectl -n external-secrets annotate serviceaccount external-secrets \
     eks.amazonaws.com/role-arn="$ESO_ROLE_ARN" --overwrite
   # 차트 버전 고정 — 아래 ClusterSecretStore가 external-secrets.io/v1을 쓰므로
-  # v1을 served/stored 하는 버전(>=0.10, 여기선 v2.6.0)에 핀해야 apply가 깨지지 않는다.
+  # v1을 served/stored 하는 버전 (>=0.10, 여기선 v2.6.0)에 핀해야 apply가 깨지지 않는다.
   helm upgrade --install external-secrets external-secrets/external-secrets \
     --version 2.6.0 \
     --namespace external-secrets \
@@ -164,4 +164,4 @@ case "$PHASE" in
   *) echo "ERROR: phase는 cilium|alb|eso|all"; exit 1 ;;
 esac
 
-echo "✔ ${ENV}: k8s 스택(${PHASE}) 설치 완료"
+echo "✔ ${ENV}: k8s 스택 (${PHASE}) 설치 완료"

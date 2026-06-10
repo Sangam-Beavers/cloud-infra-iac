@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # 백엔드 진입점: HTTP API (public) → VPC Link → internal ALB (경로 라우팅)
 #   → EKS 4서비스 (TargetGroupBinding으로 파드 등록).
-# CloudFront 우회 차단(origin-lock)은 internal ALB에 붙인 regional WAF가
+# CloudFront 우회 차단 (origin-lock)은 internal ALB에 붙인 regional WAF가
 # X-Origin-Verify 헤더를 검사해 수행한다 (WAF는 HTTP API에 직접 못 붙으므로 ALB에).
 # ---------------------------------------------------------------------------
 
@@ -236,28 +236,6 @@ resource "aws_wafv2_web_acl" "this" {
 
   default_action {
     allow {}
-  }
-
-  rule {
-    name     = "rate-limit"
-    priority = 1
-
-    action {
-      block {}
-    }
-
-    statement {
-      rate_based_statement {
-        limit              = var.waf_rate_limit
-        aggregate_key_type = "IP"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "${var.name}-rate-limit"
-      sampled_requests_enabled   = true
-    }
   }
 
   rule {

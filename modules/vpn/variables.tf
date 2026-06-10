@@ -20,7 +20,7 @@ variable "instance_type" {
 }
 
 variable "wg_mtu" {
-  description = "WireGuard 인터페이스 MTU. EC2는 점보프레임(9001)이라 wg-quick 자동값이 8921이 되는데, 터널은 인터넷(~1500)을 지나므로 큰 패킷이 fragment/drop된다. 인터넷 경유 터널은 1420 권장(1500-WG오버헤드)"
+  description = "WireGuard 인터페이스 MTU. EC2는 점보프레임 (9001)이라 wg-quick 자동값이 8921이 되는데, 터널은 인터넷 (~1500)을 지나므로 큰 패킷이 fragment/drop된다. 인터넷 경유 터널은 1420 권장 (1500-WG오버헤드)"
   type        = number
   default     = 1420
 }
@@ -36,7 +36,7 @@ variable "ssm_prefix" {
 }
 
 variable "tunnels" {
-  description = "WG 터널 정의 — 키는 인터페이스 이름(wg0active/wg1standby) 그대로 사용"
+  description = "WG 터널 정의 — 키는 인터페이스 이름 (wg0active/wg1standby) 그대로 사용"
   type = map(object({
     address         = string # EC2 측 터널 IP/프리픽스 (예: 10.255.0.1/28)
     peer_ip         = string # pfSense 측 터널 IP (BGP 네이버)
@@ -91,14 +91,14 @@ variable "app_onprem_destinations" {
 }
 
 variable "snat_source_cidrs" {
-  description = "on-prem으로 나갈 때 라우터 터널 IP로 SNAT(은닉)할 소스 CIDR (private 서브넷들). 비우면 SNAT 안 함"
+  description = "on-prem으로 나갈 때 라우터 터널 IP로 SNAT (은닉)할 소스 CIDR (private 서브넷들). 비우면 SNAT 안 함"
   type        = list(string)
   default     = []
 }
 
 # forward 트래픽 SG ingress — 흐름별로 최소 포트만 허용 (미허용 시 ENI에서 drop → AWS→on-prem 막힘)
 variable "forward_harbor_cidrs" {
-  description = "Harbor 이미지 pull(TCP)을 포워딩할 내부 소스 대역(private). SG ingress: 이 대역 → TCP forward_harbor_port"
+  description = "Harbor 이미지 pull(TCP)을 포워딩할 내부 소스 대역 (private). SG ingress: 이 대역 → TCP forward_harbor_port"
   type        = list(string)
   default     = []
 }
@@ -110,13 +110,13 @@ variable "forward_harbor_port" {
 }
 
 variable "forward_dns_cidrs" {
-  description = "on-prem DNS(UDP 53) 질의를 포워딩할 내부 소스 대역(mgmt — resolver outbound 엔드포인트). SG ingress: 이 대역 → UDP 53"
+  description = "on-prem DNS(UDP 53) 질의를 포워딩할 내부 소스 대역 (mgmt — resolver outbound 엔드포인트). SG ingress: 이 대역 → UDP 53"
   type        = list(string)
   default     = []
 }
 
 variable "pfsense_nat_ip" {
-  description = "pfSense NAT source IP — policy routing(비대칭 방지) 대상"
+  description = "pfSense NAT source IP — policy routing (비대칭 방지) 대상"
   type        = string
 }
 

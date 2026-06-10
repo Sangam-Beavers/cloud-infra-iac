@@ -93,7 +93,7 @@ module "jumphost" {
 }
 
 # 사이트-투-사이트 WireGuard + FRR (BGP) 라우터 — 온프렘 pfSense (active/standby) 연결
-# 키는 `make vpn-keys-stage`로 SSM 등록 후 apply할 것 (user_data가 부팅 시 fetch)
+# 키는 `make vpn-stage`로 SSM 등록 후 apply할 것 (user_data가 부팅 시 fetch)
 module "vpn" {
   source = "../../modules/vpn"
 
@@ -136,7 +136,7 @@ module "eks" {
   # CNI는 Cilium (개발 스택과 동일) — vpc-cni/kube-proxy 제외 후 Helm 설치
   cni = "cilium"
 
-  # ESO는 이 환경 비밀(sb/stage/*)만 읽도록 IRSA 제한
+  # ESO는 이 환경 비밀 (sb/stage/*)만 읽도록 IRSA 제한
   eso_secret_prefix = "sb/stage/"
 
   # Graviton (ARM64) 노드면 컨테이너 이미지는 arm64로 빌드 필요
@@ -146,9 +146,10 @@ module "eks" {
   # 연동 시 컨트롤플레인 ENI를 mgmt에 둬 on-prem (ArgoCD)이 private 광고 없이 API에 닿게 한다.
   control_plane_subnet_ids = local.onprem_enabled ? values(module.vpc.mgmt_subnet_ids) : []
 
-  # private-only API + 점프호스트(mgmt) kubectl + (연동 시) ArgoCD 소스(.253)
-  endpoint_public_access = var.eks_config.endpoint_public_access
-  api_allowed_cidrs      = concat(values(var.network.mgmt), local.onprem_enabled ? var.onprem_integration.argocd_source_cidrs : [])
+  # private-only API + 점프 호스트 (mgmt) kubectl + (연동 시) ArgoCD 소스 (.253)
+  endpoint_public_access       = var.eks_config.endpoint_public_access
+  endpoint_public_access_cidrs = var.eks_config.endpoint_public_access_cidrs
+  api_allowed_cidrs            = concat(values(var.network.mgmt), local.onprem_enabled ? var.onprem_integration.argocd_source_cidrs : [])
 
   # ArgoCD용 access entry (principal ARN 있을 때만 생성)
   argocd_principal_arn     = local.onprem_enabled ? var.onprem_integration.argocd_principal_arn : ""
@@ -183,7 +184,7 @@ module "route53_resolver" {
 }
 
 # 백엔드 진입점 — HTTP API → VPC Link → internal ALB → EKS 4서비스 (TargetGroupBinding).
-# CloudFront 우회 차단(origin-lock)은 ALB의 regional WAF가 X-Origin-Verify로 수행한다.
+# CloudFront 우회 차단 (origin-lock)은 ALB의 regional WAF가 X-Origin-Verify로 수행한다.
 module "api_gateway" {
   source = "../../modules/api-gateway"
 
@@ -193,12 +194,11 @@ module "api_gateway" {
   kms_key_arn = module.kms.key_arn
   ssm_prefix  = "/sb/stage/api-gateway"
 
-  services       = var.api_gateway_config.services
-  waf_rate_limit = var.api_gateway_config.waf_rate_limit
+  services = var.api_gateway_config.services
 }
 
 # ---------------------------------------------------------------------------
-# 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF). api_gateway 출력(오리진 URL·origin-verify
+# 엣지 (CloudFront + S3 + CLOUDFRONT-scope WAF). api_gateway 출력 (오리진 URL·origin-verify
 # 비밀)을 같은 그래프에서 직접 참조한다. prod 도메인은 secrets/domain.env (GB_PROD_DOMAIN), stage는 기본 인증서.
 # ---------------------------------------------------------------------------
 # CLOUDFRONT scope WAF/ACM은 us-east-1 전용이라 별칭 provider를 둔다
@@ -228,6 +228,8 @@ module "edge" {
   name   = "sb-stage-edge"
   domain = "" # stage는 기본 *.cloudfront.net (커스텀 도메인은 prod 전용)
 
+  waf_rate_limit = var.api_gateway_config.waf_rate_limit
+
   api_origin = {
     domain_name          = trimsuffix(trimprefix(module.api_gateway.api_origin_url, "https://"), "/")
     origin_verify_secret = module.api_gateway.origin_verify_secret
@@ -256,6 +258,7 @@ module "aurora" {
   allowed_cidrs = concat(values(var.network.private), values(var.network.mgmt))
 
   instance_count          = var.aurora_config.instance_count
+  serverless_min_acu      = var.aurora_config.serverless_min_acu
   serverless_max_acu      = var.aurora_config.serverless_max_acu
   backup_retention_period = var.aurora_config.backup_retention_period
   deletion_protection     = var.aurora_config.deletion_protection

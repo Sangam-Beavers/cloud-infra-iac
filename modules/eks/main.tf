@@ -49,19 +49,27 @@ resource "aws_eks_cluster" "this" {
   # bootstrap_self_managed_addons는 기본값 (true) 을 유지한다 — EKS가 클러스터 생성 시
   # 기본 self-managed vpc-cni/kube-proxy/coredns를 깐다. cni="cilium"이어도 이 기본 CNI가
   # 노드를 Ready로 만들어 apply가 무인으로 완료된다 (private-only API라 Terraform은 클러스터에
-  # 접근해 Cilium을 깔 수 없다). apply 후 install-k8s-stack.sh가 점프호스트 터널로 vpc-cni를
+  # 접근해 Cilium을 깔 수 없다). apply 후 install-k8s-stack.sh가 점프 호스트 터널로 vpc-cni를
   # Cilium으로 교체한다. false로 두면 노드가 NotReady라 매니지드 노드그룹 생성이 데드락된다.
 
   # api/audit/authenticator 감사 로그를 CloudWatch로 (인증 실패·권한 변경 추적)
   enabled_cluster_log_types = ["api", "audit", "authenticator"]
 
-  # 컨트롤플레인 ENI는 control_plane_subnet_ids(지정 시 mgmt)에, 노드 그룹은 subnet_ids(private)에.
+  # 컨트롤플레인 ENI는 control_plane_subnet_ids (지정 시 mgmt)에, 노드 그룹은 subnet_ids(private)에.
   # 분리하면 on-prem(ArgoCD)이 mgmt 경유로 API에 닿으면서 private는 광고 없이 숨길 수 있다.
   vpc_config {
     subnet_ids              = length(var.control_plane_subnet_ids) > 0 ? var.control_plane_subnet_ids : var.subnet_ids
     endpoint_private_access = true
     endpoint_public_access  = var.endpoint_public_access
     public_access_cidrs     = var.endpoint_public_access ? var.endpoint_public_access_cidrs : null
+  }
+
+  # 퍼블릭 엔드포인트를 켜면서 CIDR을 비우면 0.0.0.0/0 (전세계)로 열리므로 차단한다.
+  lifecycle {
+    precondition {
+      condition     = !var.endpoint_public_access || length(var.endpoint_public_access_cidrs) > 0
+      error_message = "endpoint_public_access=true면 endpoint_public_access_cidrs를 반드시 지정해야 한다 (빈 리스트는 0.0.0.0/0 = 전세계 노출)."
+    }
   }
 
   access_config {
@@ -263,8 +271,8 @@ resource "aws_eks_addon" "coredns" {
 
 # ---------------------------------------------------------------------------
 # on-prem ArgoCD용 access entry — IAM principal을 RBAC에 매핑 (authentication_mode=API).
-# principal ARN이 비어있으면 생성하지 않는다. RBAC는 argocd_access_policy_arn(기본 Edit)로
-# 부여하고, argocd_access_namespaces 지정 시 해당 네임스페이스로 한정(least-privilege).
+# principal ARN이 비어있으면 생성하지 않는다. RBAC는 argocd_access_policy_arn (기본 Edit)로
+# 부여하고, argocd_access_namespaces 지정 시 해당 네임스페이스로 한정 (least-privilege).
 # ---------------------------------------------------------------------------
 
 resource "aws_eks_access_entry" "argocd" {

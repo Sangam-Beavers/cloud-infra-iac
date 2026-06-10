@@ -192,7 +192,7 @@ ip route replace ${t.peer_ip}/32 dev ${ifname}
 # ==========================================
 # 9. Policy Routing (비대칭 방지 — 들어온 터널로 reply 회송)
 # ==========================================
-MGMT_DEV="ens5"
+MGMT_DEV=$(ip route | awk '/default/ {print $5; exit}')
 %{ for idx, ifname in keys(tunnels) ~}
 ip route replace ${pfsense_nat_ip}/32 dev ${ifname} table ${100 + idx}
 iptables -t mangle -C PREROUTING -i ${ifname} -j CONNMARK --set-mark ${idx + 1} 2>/dev/null \
@@ -204,7 +204,7 @@ iptables -t mangle -C PREROUTING -i "$MGMT_DEV" -j CONNMARK --restore-mark 2>/de
 
 # ==========================================
 # 9b. SNAT — private (app) → on-prem 목적지를 터널 IP로 가장 (private 대역 은닉)
-#   on-prem(Harbor)엔 라우터 터널 IP 단일 소스로만 보이고, 회신은 BGP 네이버(터널)로 되돌아온다.
+#   on-prem(Harbor)엔 라우터 터널 IP 단일 소스로만 보이고, 회신은 BGP 네이버 (터널)로 되돌아온다.
 # ==========================================
 %{ for ifname in keys(tunnels) ~}
 %{ for src in snat_source_cidrs ~}
@@ -217,7 +217,7 @@ iptables -t nat -C POSTROUTING -s ${src} -d ${dst} -o ${ifname} -j MASQUERADE 2>
 
 # ==========================================
 # 9c. MSS clamping — forward TCP 세그먼트를 경로 MTU(WG 1420)에 맞춰 줄인다.
-#   인터넷 경유 터널이라 PMTU 발견이 막히면 큰 세그먼트가 drop/reset된다(이미지 pull 등 대용량 실패).
+#   인터넷 경유 터널이라 PMTU 발견이 막히면 큰 세그먼트가 drop/reset된다 (이미지 pull 등 대용량 실패).
 #   SYN에 clamp하면 양 끝이 처음부터 작은 MSS로 협상해 fragment 없이 전송된다.
 # ==========================================
 iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \

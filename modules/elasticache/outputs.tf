@@ -4,12 +4,12 @@ output "replication_group_id" {
 }
 
 output "primary_endpoint" {
-  description = "Primary(쓰기) 엔드포인트"
+  description = "Primary (쓰기) 엔드포인트"
   value       = aws_elasticache_replication_group.this.primary_endpoint_address
 }
 
 output "reader_endpoint" {
-  description = "Reader(읽기) 엔드포인트"
+  description = "Reader (읽기) 엔드포인트"
   value       = aws_elasticache_replication_group.this.reader_endpoint_address
 }
 

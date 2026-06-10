@@ -79,6 +79,11 @@ resource "aws_elasticache_replication_group" "this" {
   # apply_immediately=true: node_type/버전 등 변경을 유지보수 창구 대기 없이 즉시 반영 (순단 가능)
   apply_immediately = true
 
+  lifecycle {
+    # AUTH 토큰은 bootstrap-redis.sh가 API로 설정 — Terraform이 드리프트로 보지 않도록 무시
+    ignore_changes = [auth_token]
+  }
+
   tags = {
     Name = var.name
   }

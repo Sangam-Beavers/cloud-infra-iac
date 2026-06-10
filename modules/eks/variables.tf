@@ -15,7 +15,7 @@ variable "subnet_ids" {
 }
 
 variable "control_plane_subnet_ids" {
-  description = "컨트롤플레인(API 엔드포인트) ENI를 둘 서브넷 — 비우면 subnet_ids와 동일. on-prem ArgoCD가 API에 닿아야 하면 mgmt 서브넷을 넘겨 private를 광고 없이 숨긴다. 최소 2 AZ."
+  description = "컨트롤플레인 (API 엔드포인트) ENI를 둘 서브넷 — 비우면 subnet_ids와 동일. on-prem ArgoCD가 API에 닿아야 하면 mgmt 서브넷을 넘겨 private를 광고 없이 숨긴다. 최소 2 AZ."
   type        = list(string)
   default     = []
 }
@@ -26,7 +26,7 @@ variable "kms_key_arn" {
 }
 
 variable "api_allowed_cidrs" {
-  description = "private API 엔드포인트(443)에 접근을 허용할 CIDR (예: mgmt 서브넷 — 점프 호스트 경유 kubectl). 클러스터 SG에 인그레스 규칙 추가"
+  description = "private API 엔드포인트 (443)에 접근을 허용할 CIDR (예: mgmt 서브넷 — 점프 호스트 경유 kubectl). 클러스터 SG에 인그레스 규칙 추가"
   type        = list(string)
   default     = []
 }
@@ -38,7 +38,7 @@ variable "endpoint_public_access" {
 }
 
 variable "endpoint_public_access_cidrs" {
-  description = "퍼블릭 API 엔드포인트 접근 허용 CIDR. 기본 [](전체 차단) — 퍼블릭 활성화 시 사무실/VPN IP로 반드시 좁힐 것"
+  description = "퍼블릭 API 엔드포인트 접근 허용 CIDR. 주의: 퍼블릭 활성 시 빈 리스트는 0.0.0.0/0 (전체 허용)이 된다 — 퍼블릭을 켜면 사무실/VPN IP로 반드시 좁힐 것 (모듈 precondition이 빈 리스트+public을 차단)"
   type        = list(string)
   default     = []
 }

@@ -78,7 +78,7 @@ network = {
 #   - address (우리 EC2 측 터널 IP/28) 와 peer_ip (pfSense 측 터널 IP)는 같은 /28 안의 짝.
 #   - listen_port (WG UDP)는 양쪽 동일. active/standby가 다른 포트 (51820/51821).
 #   - peer_pubkey_ssm 은 온프렘 공개키가 저장된 SSM 파라미터 "이름"(접두사 /sb/prod/vpn 하위). 키 이름은 보통 고정.
-#   - 우리 측 WG 키는 `make vpn-keys-prod`로 SSM에 먼저 등록한 뒤 apply할 것 (user_data가 부팅 시 fetch).
+#   - 우리 측 WG 키는 `make vpn-prod`로 SSM에 먼저 등록한 뒤 apply할 것 (user_data가 부팅 시 fetch).
 vpn_tunnels = {
   wg0active = {
     address         = "<EC2_TUNNEL_IP>/28" # 예: 10.255.0.1/28

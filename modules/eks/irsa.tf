@@ -101,7 +101,7 @@ resource "aws_iam_role_policy" "eso" {
       },
       {
         # 비밀이 환경 CMK로 암호화돼 있어 Decrypt 필요. DescribeKey는 ESO/Secrets Manager의
-        # 비-happy-path(키 메타데이터 조회)에서 호출될 수 있어 함께 허용.
+        # 비-happy-path (키 메타데이터 조회)에서 호출될 수 있어 함께 허용.
         Sid      = "DecryptWithEnvCmk"
         Effect   = "Allow"
         Action   = ["kms:Decrypt", "kms:DescribeKey"]

@@ -69,12 +69,12 @@ output "vpn_eip" {
 }
 
 output "redis_primary_endpoint" {
-  description = "Valkey primary(쓰기) 엔드포인트"
+  description = "Valkey primary (쓰기) 엔드포인트"
   value       = module.redis.primary_endpoint
 }
 
 output "redis_reader_endpoint" {
-  description = "Valkey reader(읽기) 엔드포인트"
+  description = "Valkey reader (읽기) 엔드포인트"
   value       = module.redis.reader_endpoint
 }
 
@@ -130,6 +130,6 @@ output "edge_route53_name_servers" {
 }
 
 output "resolver_inbound_ips" {
-  description = "Route53 Resolver inbound 엔드포인트 IP — pfSense 조건부 포워더(EKS 엔드포인트 도메인 → 이 IP)에 설정 (온프렘 연동 시)"
+  description = "Route53 Resolver inbound 엔드포인트 IP — pfSense 조건부 포워더 (EKS 엔드포인트 도메인 → 이 IP)에 설정 (온프렘 연동 시)"
   value       = try(module.route53_resolver[0].inbound_endpoint_ip_addresses, [])
 }

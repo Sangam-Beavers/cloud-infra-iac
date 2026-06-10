@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Terraform S3 백엔드 버킷을 "발견 또는 생성"하고, 그 이름을 캐시 파일에 기록한다.
-# Makefile은 이 캐시(secrets/.state-bucket-<profile>)를 읽어 STATE_BUCKET으로 쓴다.
+# Makefile은 이 캐시 (secrets/.state-bucket-<profile>)를 읽어 STATE_BUCKET으로 쓴다.
 # → 사용자는 버킷명을 정할 필요가 없다 (PROFILE만 바꾸면 계정별로 자동).
 #
 #   · 계정에 global-bridge-tfstate* 버킷이 이미 있으면 그걸 재사용 (마이그레이션 불필요).
 #   · 없으면 global-bridge-tfstate-<계정ID> 로 생성 (전역 유일·결정론적, 하드코딩 아님).
-# versioning + 암호화(SSE-S3) + public 차단 + HTTPS 강제. 멱등 — 있으면 생성 skip.
+# versioning + 암호화 (SSE-S3) + public 차단 + HTTPS 강제. 멱등 — 있으면 생성 skip.
 #
 # 사용법: PROFILE=<계정> ./create-state-bucket.sh   (보통 make state-bucket / up-all이 자동 호출)
 # ---------------------------------------------------------------------------
@@ -49,6 +49,6 @@ mkdir -p secrets
   printf '# === Terraform state 백엔드 버킷 캐시 (자동 생성 — 편집/온프렘 작업 불필요) ===\n'
   printf '# make state-bucket(create-state-bucket.sh)이 계정의 state 버킷을 발견·생성해 여기 기록한다.\n'
   printf '# make가 마지막 비주석 줄을 STATE_BUCKET으로 읽어 terraform init -backend-config에 주입.\n'
-  printf '# 계정(PROFILE)마다 별도 파일이며, 지우면 다음 make 호출이 재생성한다.\n'
+  printf '# 계정 (PROFILE)마다 별도 파일이며, 지우면 다음 make 호출이 재생성한다.\n'
   printf '%s\n' "$BUCKET"
 } > "$CACHE"

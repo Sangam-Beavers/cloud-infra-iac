@@ -23,7 +23,7 @@ ENVUP=$(printf '%s' "$ENV" | tr '[:lower:]' '[:upper:]')
 HOST=$(cd "$TF_DIR" && terraform output -raw eks_cluster_endpoint 2>/dev/null | sed 's#^https://##')
 IPS=$(cd "$TF_DIR" && terraform output -json resolver_inbound_ips 2>/dev/null | tr -d '[] "' )
 
-# resolver 출력이 비면 온프렘 미연동(onprem_integration.enabled=false) — 핸드오프할 게 없으니 생략.
+# resolver 출력이 비면 온프렘 미연동 (onprem_integration.enabled=false) — 핸드오프할 게 없으니 생략.
 # (up-all에서 무조건 호출돼도 비연동 환경은 깨지 않도록 exit 0)
 if [ -z "$IPS" ]; then
   echo "온프렘 미연동 ($ENV) — resolver 없음, 핸드오프 생략"
@@ -37,19 +37,19 @@ fi
 mkdir -p secrets
 OUT="secrets/.eks-control-plane-dns-ip"
 
-# 헤더(환경 무관 설명)는 1회만 생성 — prod/stage가 한 파일에 prefix로 공존 (.wireguard-eip와 동일 방식)
+# 헤더 (환경 무관 설명)는 1회만 생성 — prod/stage가 한 파일에 prefix로 공존 (.wireguard-eip와 동일 방식)
 if [ ! -f "$OUT" ]; then
   cat > "$OUT" <<'HDR'
 # === EKS Control-Plane DNS — 온프렘 pfSense DNS Forwarding 설정 (prod/stage 공존) ===
 # private-only EKS의 API 엔드포인트 호스트명은 VPC 내부 private IP로만 해석된다.
-# 온프렘 ArgoCD가 이 API에 접속하려면, pfSense의 DNS Resolver(또는 Forwarder)에서
+# 온프렘 ArgoCD가 이 API에 접속하려면, pfSense의 DNS Resolver (또는 Forwarder)에서
 # <ENV>_EKS_ENDPOINT_HOST 도메인의 conditional forwarder를 같은 환경의
 # <ENV>_EKS_RESOLVER_INBOUND_IPS로 향하게 설정한다 (PROD_*는 prod, STAGE_*는 stage).
-# 그러면 온프렘이 호스트명을 private ENI IP로 해석하고, TLS(인증서 SAN=호스트명) 검증도 통과한다.
+# 그러면 온프렘이 호스트명을 private ENI IP로 해석하고, TLS (인증서 SAN=호스트명) 검증도 통과한다.
 HDR
 fi
 
-# 이 환경 줄만 갱신하고 다른 환경(prefix) 줄은 보존 — 둘을 같은 파일에 구분 기록 (덮어쓰기 X)
+# 이 환경 줄만 갱신하고 다른 환경 (prefix) 줄은 보존 — 둘을 같은 파일에 구분 기록 (덮어쓰기 X)
 tmp=$(mktemp)
 grep -v "^${ENVUP}_EKS_" "$OUT" > "$tmp" || true
 {

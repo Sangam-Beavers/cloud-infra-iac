@@ -24,7 +24,7 @@ variable "kms_key_arn" {
 }
 
 variable "databases" {
-  description = "이 클러스터에 들어갈 논리 DB(서비스) 목록 — scripts/bootstrap-db.sh가 생성"
+  description = "이 클러스터에 들어갈 논리 DB (서비스) 목록 — scripts/bootstrap-db.sh가 생성"
   type        = list(string)
 }
 
@@ -50,6 +50,11 @@ variable "serverless_min_acu" {
   description = "Serverless v2 최소 ACU (인스턴스당, 유휴 시 과금 기준). instance_class = db.serverless 일 때만 적용"
   type        = number
   default     = 0.5
+
+  validation {
+    condition     = var.serverless_min_acu > 0
+    error_message = "serverless_min_acu는 0보다 커야 합니다."
+  }
 }
 
 variable "serverless_max_acu" {

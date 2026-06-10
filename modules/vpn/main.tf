@@ -52,7 +52,7 @@ resource "aws_security_group" "this" {
   }
 
   # forward 트래픽 ingress — 흐름별 최소 포트만 (미허용 시 ENI에서 drop → AWS→on-prem 막힘).
-  # private(EKS 노드) → Harbor 이미지 pull (TCP 443)
+  # private (EKS 노드) → Harbor 이미지 pull (TCP 443)
   dynamic "ingress" {
     for_each = length(var.forward_harbor_cidrs) > 0 ? [1] : []
     content {
@@ -64,14 +64,15 @@ resource "aws_security_group" "this" {
     }
   }
 
-  # mgmt(resolver outbound 엔드포인트) → on-prem DNS (UDP 53)
+  # mgmt (resolver outbound 엔드포인트) → on-prem DNS (UDP 53 + TCP 53)
+  # TCP는 512B 초과 응답·DNSSEC truncate 재시도용 — resolver outbound SG와 대칭.
   dynamic "ingress" {
-    for_each = length(var.forward_dns_cidrs) > 0 ? [1] : []
+    for_each = length(var.forward_dns_cidrs) > 0 ? ["udp", "tcp"] : []
     content {
-      description = "forward: mgmt to on-prem DNS (UDP)"
+      description = "forward: mgmt to on-prem DNS (${ingress.value})"
       from_port   = 53
       to_port     = 53
-      protocol    = "udp"
+      protocol    = ingress.value
       cidr_blocks = var.forward_dns_cidrs
     }
   }

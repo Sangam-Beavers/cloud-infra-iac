@@ -35,17 +35,6 @@ variable "log_retention_in_days" {
   default     = 30
 }
 
-variable "waf_rate_limit" {
-  description = "IP당 5분 윈도우 요청 상한 (rate-limit 백스톱). WAFv2 최소 100"
-  type        = number
-  default     = 2000
-
-  validation {
-    condition     = var.waf_rate_limit >= 100
-    error_message = "waf_rate_limit은 100 이상이어야 합니다 (WAFv2 최소값)."
-  }
-}
-
 variable "services" {
   description = "백엔드 서비스 → 내부 ALB 경로/포트/헬스체크/우선순위 매핑. 각 서비스는 TargetGroupBinding으로 파드를 등록한다"
   type = map(object({

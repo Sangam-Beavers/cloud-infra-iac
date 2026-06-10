@@ -34,8 +34,8 @@ resource "aws_internet_gateway" "this" {
 
 # ---------------------------------------------------------------------------
 # VPC Flow Logs → CloudWatch (CMK 암호화) — 네트워크 트래픽 감사/포렌식
-# enable_flow_logs(정적 bool)로 켜고 끔. count는 apply 시점에야 정해지는
-# kms_key_arn에 의존하면 안 되므로(plan이 개수 추론 불가) 별도 bool로 분리한다.
+# enable_flow_logs (정적 bool)로 켜고 끔. count는 apply 시점에야 정해지는
+# kms_key_arn에 의존하면 안 되므로 (plan이 개수 추론 불가) 별도 bool로 분리한다.
 # ---------------------------------------------------------------------------
 
 locals {
@@ -48,6 +48,13 @@ resource "aws_cloudwatch_log_group" "flow" {
   name              = "/aws/vpc/${var.name}/flow-logs"
   retention_in_days = var.flow_log_retention_days
   kms_key_id        = var.flow_log_kms_key_arn
+
+  lifecycle {
+    precondition {
+      condition     = var.flow_log_kms_key_arn != null
+      error_message = "enable_flow_logs면 flow_log_kms_key_arn (CMK)을 지정해야 한다 (미지정 시 CMK 암호화 미적용)."
+    }
+  }
 
   tags = {
     Name = "${var.name}-flow-logs"
@@ -267,7 +274,7 @@ resource "aws_route" "private_nat" {
     # 조용히 fallback되어 격리가 깨진다 — 명시적으로 실패시킴
     precondition {
       condition     = var.nat_gateway_strategy != "per_az" || contains(local.public_azs, each.key)
-      error_message = "per_az 전략에서는 private 서브넷 AZ '${each.key}'에 대응하는 public 서브넷(NAT)이 필요합니다."
+      error_message = "per_az 전략에서는 private 서브넷 AZ '${each.key}'에 대응하는 public 서브넷 (NAT)이 필요합니다."
     }
   }
 }
