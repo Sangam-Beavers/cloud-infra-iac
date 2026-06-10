@@ -136,7 +136,8 @@ install_eso() {
     --set serviceAccount.create=false \
     --set serviceAccount.name=external-secrets \
     --wait --timeout 5m
-  # 클러스터 전역 SecretStore — AWS Secrets Manager provider
+  # 클러스터 전역 SecretStore 2종 — 비밀은 Secrets Manager, 비밀 아닌 인프라 동적값은 Parameter Store.
+  # 같은 ESO ServiceAccount(IRSA)를 쓴다 (역할에 secretsmanager + ssm 권한 모두 부여됨).
   kubectl apply -f - <<EOF
 apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
@@ -152,8 +153,23 @@ spec:
           serviceAccountRef:
             name: external-secrets
             namespace: external-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: aws-parameter-store
+spec:
+  provider:
+    aws:
+      service: ParameterStore
+      region: ${REGION}
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: external-secrets
+            namespace: external-secrets
 EOF
-  echo "[✔] ESO + ClusterSecretStore 설치 완료"
+  echo "[✔] ESO + ClusterSecretStore(SecretsManager·ParameterStore) 설치 완료"
 }
 
 ensure_app_namespaces() {

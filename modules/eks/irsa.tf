@@ -100,7 +100,16 @@ resource "aws_iam_role_policy" "eso" {
         Resource = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.eso_secret_prefix}*"
       },
       {
-        # 비밀이 환경 CMK로 암호화돼 있어 Decrypt 필요. DescribeKey는 ESO/Secrets Manager의
+        # 이 환경의 SSM Parameter Store 값만 (/sb/{env}/*) — ParameterStore ClusterSecretStore용.
+        # 비밀 아닌 인프라 동적값 (엔드포인트·버킷명·계정 B 핸드오프 등) 주입 경로.
+        Sid    = "ReadServiceParameters"
+        Effect = "Allow"
+        Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+        # eso_secret_prefix "sb/{env}/" → SSM 경로 "/sb/{env}/*"
+        Resource = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/${trimsuffix(var.eso_secret_prefix, "/")}/*"
+      },
+      {
+        # 비밀/SecureString이 환경 CMK로 암호화돼 있어 Decrypt 필요. DescribeKey는 ESO/Secrets Manager의
         # 비-happy-path (키 메타데이터 조회)에서 호출될 수 있어 함께 허용.
         Sid      = "DecryptWithEnvCmk"
         Effect   = "Allow"
