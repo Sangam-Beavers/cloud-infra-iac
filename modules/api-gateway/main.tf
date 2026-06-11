@@ -27,6 +27,31 @@ resource "aws_ssm_parameter" "origin_verify" {
   }
 }
 
+# TargetGroupBinding용 정보(서비스별 target group ARN + 컨테이너 포트)를 SSM(Parameter Store)에 게시한다.
+# TGB의 targetGroupARN은 CR spec 필드라 ESO(Secret)로 못 채운다 → PS에 두고 install-k8s-stack의
+# tgb phase(terraform↔cluster 글루)가 끌어 TargetGroupBinding을 만든다. 비밀 아니라 String.
+resource "aws_ssm_parameter" "tgb" {
+  for_each = var.tgb_ssm_prefix == "" ? {} : var.services
+  name     = "${var.tgb_ssm_prefix}/${each.key}"
+  type     = "String"
+  value    = jsonencode({ arn = aws_lb_target_group.this[each.key].arn, port = each.value.port })
+
+  tags = {
+    Name = "${var.name}-tgb-${each.key}"
+  }
+}
+
+resource "aws_ssm_parameter" "tgb_alb_sg" {
+  count = var.tgb_ssm_prefix == "" ? 0 : 1
+  name  = "${var.tgb_ssm_prefix}/alb_sg"
+  type  = "String"
+  value = aws_security_group.alb.id
+
+  tags = {
+    Name = "${var.name}-tgb-alb-sg"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # 보안 그룹 — VPC Link ENI → 내부 ALB
 # ---------------------------------------------------------------------------

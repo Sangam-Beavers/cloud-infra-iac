@@ -1,0 +1,77 @@
+# install-k8s-stack.sh install_kafka 가 적용 — gb-kafka 토픽(자동생성 금지, 선언적).
+# 백엔드 스펙: main 3종(파티션 3·7일 보관), DLT 3종(파티션 1). 단일 브로커라 전부 replicas 1.
+# DLT는 토픽명이 대문자(.DLT)라 K8s 이름 규칙(소문자) 위배 → metadata.name은 소문자, 실제명은 spec.topicName.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: wallet.milestone-achieved.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: gb-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: "604800000"   # 7일
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: document.milestone-achieved.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: gb-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: "604800000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: community.milestone-achieved.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: gb-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: "604800000"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: wallet-milestone-achieved-v1-dlt
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: gb-kafka
+spec:
+  topicName: wallet.milestone-achieved.v1.DLT
+  partitions: 1
+  replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: document-milestone-achieved-v1-dlt
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: gb-kafka
+spec:
+  topicName: document.milestone-achieved.v1.DLT
+  partitions: 1
+  replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: community-milestone-achieved-v1-dlt
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: gb-kafka
+spec:
+  topicName: community.milestone-achieved.v1.DLT
+  partitions: 1
+  replicas: 1

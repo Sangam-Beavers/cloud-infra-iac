@@ -122,7 +122,7 @@ aws ssm describe-instance-information --profile woori-fisa-1k --region ap-northe
 | `fmt` / `validate` / `init` | 코드 포맷 / 3스택 검증 / 3스택 초기화 |
 | `state-bucket` | state 버킷 발견·생성 후 캐시 기록 (멱등 — `up-all`이 자동 호출) |
 | `plan-*` / `apply-*` / `destroy-*` | 스택별 plan/apply/destroy (`app`·`prod`·`stage`) |
-| `k8s-stack-{prod,stage}` | Cilium / ALB Controller / ESO 설치 (apply 후 — `PHASE=cilium\|alb\|eso\|all`) |
+| `k8s-stack-{prod,stage}` | Cilium / ALB Controller / ESO / Harbor / Kafka / TGB 설치 (apply 후 — `PHASE=cilium\|alb\|eso\|ns\|harbor\|kafka\|tgb\|all`) |
 | `bootstrap-{prod,stage}` | Valkey AUTH + 논리 DB/서비스 계정/비밀 생성 (apply 후) |
 | `vpn-{prod,stage}` | VPN 셋업 통합 — WG키 SSM 등록 + 라우터 재기동 + EIP 기록 (apply 후 1회, 환경 CMK 필요) |
 | `vpn-restart` / `vpn-eip` | 라우터 재기동 (키 반영, EIP 유지) / EIP를 `secrets/.wireguard-{env}-eip`에 기록 |
@@ -145,7 +145,7 @@ aws ssm describe-instance-information --profile woori-fisa-1k --region ap-northe
 | `bootstrap-db.sh` | 점프 호스트 | `run-db-bootstrap.sh`가 원격 실행하는 로직의 수동판입니다 (SSM 세션 디버깅용) |
 | `register-vpn-keys.sh` | 로컬 | `secrets/wg.{env}.env`의 키를 SSM SecureString (환경 CMK 암호화)으로 등록합니다 |
 | `onprem-handoff.sh` | 로컬 | terraform output을 읽어 `secrets/.eks-cp-{env}-dns-ip` (pfSense DNS forwarder 안내 주석 포함, 환경별 파일) 를 기록합니다 (ArgoCD cluster Secret은 terraform `local_sensitive_file`이 apply 시 생성·destroy 시 삭제) |
-| `install-k8s-stack.sh` | 로컬 | 점프 호스트 SSM 터널 경유로 Cilium (CNI) · AWS Load Balancer Controller · External Secrets Operator를 Helm으로 설치하고, ArgoCD 배포 네임스페이스를 사전 생성합니다 — 클러스터 안엔 사전 설치물이 없어 로컬 `helm`/`kubectl`만 필요합니다 (`<prod\|stage> [cilium\|alb\|eso\|ns\|all]`) |
+| `install-k8s-stack.sh` | 로컬 | 점프 호스트 SSM 터널 경유로 Cilium (CNI) · AWS Load Balancer Controller · External Secrets Operator를 Helm으로 설치하고, ArgoCD 배포 네임스페이스 사전 생성 · Harbor pull (노드 CA + harbor-dockercfg) · Strimzi Kafka (gb-kafka) · 내부 ALB TargetGroupBinding (PS /sb/{env}/tgb/* 참조) 까지 올립니다 — 클러스터 안엔 사전 설치물이 없어 로컬 `helm`/`kubectl`만 필요합니다. 매니페스트는 `scripts/manifests/`로 분리 (`<prod\|stage> [cilium\|alb\|eso\|ns\|harbor\|kafka\|tgb\|all]`) |
 | `create-state-bucket.sh` | 로컬 | 계정의 state 버킷을 발견하거나 없으면 생성하고 (versioning·SSE-S3·public 차단·HTTPS 강제), 그 이름을 캐시에 기록합니다 — make가 자동 호출 ([5.4](#54-s3-백엔드와-계정-전환) 참고) |
 
 모든 부트스트랩은 멱등입니다 — 재실행하면 비밀번호가 재발급되고 DB 계정 (`ALTER USER`)과 비밀이 함께 갱신되어 항상 일치합니다.

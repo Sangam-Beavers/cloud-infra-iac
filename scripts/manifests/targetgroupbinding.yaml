@@ -1,0 +1,25 @@
+# install-k8s-stack.sh install_tgb 가 서비스마다 적용 — 내부 ALB(api-gateway, terraform)의 target group에
+# 백엔드 파드를 등록한다(ALB Controller가 관리, targetType: ip). 값은 PS /sb/{env}/tgb/*(terraform 게시).
+# serviceRef.port는 Service의 'http' 포트명으로 참조(번호 무관). networking은 ALB SG → 컨테이너 포트.
+# 렌더: SVC/APP_NS/TG_ARN/PORT/ALB_SG를 envsubst.
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: ${SVC}
+  namespace: ${APP_NS}
+  labels:
+    app: ${SVC}
+spec:
+  serviceRef:
+    name: ${SVC}
+    port: http
+  targetGroupARN: ${TG_ARN}
+  targetType: ip
+  networking:
+    ingress:
+      - from:
+          - securityGroup:
+              groupID: ${ALB_SG}
+        ports:
+          - protocol: TCP
+            port: ${PORT}

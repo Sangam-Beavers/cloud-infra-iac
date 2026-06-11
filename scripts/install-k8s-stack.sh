@@ -8,8 +8,10 @@
 # (파드가 VPC IP → ALB target-type=ip 직접 연동). 비밀은 AWS Secrets Manager + ESO.
 #
 # 사용법: ./install-k8s-stack.sh <prod|stage> [phase] [profile]
-#   phase: cilium | alb | eso | ns | harbor | all (기본 all). ns=ArgoCD 배포 네임스페이스
-#          사전 생성, harbor=노드 사내 CA 신뢰(DaemonSet) + harbor-dockercfg(ExternalSecret)
+#   phase: cilium | alb | eso | ns | harbor | kafka | tgb | all (기본 all). ns=ArgoCD 배포 네임스페이스
+#          사전 생성, harbor=노드 사내 CA 신뢰(DaemonSet) + harbor-dockercfg(ExternalSecret),
+#          kafka=Strimzi 단일 브로커(gb-kafka) + 토픽 + bootstrap을 Parameter Store에 게시,
+#          tgb=내부 ALB target group에 백엔드 파드 등록(TargetGroupBinding, PS /sb/{env}/tgb/* 참조)
 # 전제: 해당 환경 apply 완료 (cni=cilium), terraform output 사용 가능
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -216,14 +218,73 @@ install_harbor() {
   echo "[✔] Harbor pull 활성화 완료 (CA DaemonSet + harbor-dockercfg)"
 }
 
+install_kafka() {
+  # 백엔드 4서비스(member 등)의 마일스톤 이벤트 Kafka — Strimzi 단일 브로커(gb-kafka, KRaft).
+  # 인증 A안(PLAINTEXT + NetworkPolicy 격리). 접속 주소는 Parameter Store에 게시해 앱이 ESO로
+  # 끌어가게 한다(서비스명 하드코딩 회피 — redis/harbor가 SM에 쓰는 것과 동일 취지).
+  echo "=== Kafka 설치 (Strimzi gb-kafka 단일 브로커, KRaft) ==="
+  helm repo add strimzi https://strimzi.io/charts/ >/dev/null 2>&1 || true
+  helm repo update strimzi >/dev/null
+  kubectl create namespace kafka --dry-run=client -o yaml | kubectl apply -f -
+  # 차트 버전 고정 — Strimzi 1.0.0이 Kafka 4.1.2 지원(온프렘 gb-kafka와 동일). 기본 watch=설치 ns(kafka).
+  helm upgrade --install strimzi-kafka-operator strimzi/strimzi-kafka-operator \
+    --version 1.0.0 \
+    --namespace kafka \
+    --wait --timeout 5m
+  kubectl apply -f "$MF/kafka-cluster.yaml"
+  echo "[*] Kafka 클러스터 Ready 대기 (브로커 기동·스토리지 포맷)..."
+  kubectl -n kafka wait kafka/gb-kafka --for=condition=Ready --timeout=10m
+  kubectl apply -f "$MF/kafka-topics.yaml"
+  # A안 NetworkPolicy — 백엔드 네임스페이스(argocd_namespaces 첫 항목)만 9092 허용
+  local app_ns
+  app_ns=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[]" ' | cut -d, -f1 || true)
+  app_ns="${app_ns:-sb-${ENV}-app-ns}"
+  APP_NS="$app_ns" envsubst '${APP_NS}' < "$MF/kafka-networkpolicy.yaml" | kubectl apply -f -
+  # 접속 주소를 Parameter Store에 게시 (비밀 아닌 엔드포인트 → String; /sb/${ENV}/* 라 ESO IRSA 커버)
+  local boot="gb-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092"
+  echo "[*] PS 게시: /sb/${ENV}/kafka/bootstrap_servers = $boot"
+  aws ssm put-parameter --name "/sb/${ENV}/kafka/bootstrap_servers" --type String \
+    --value "$boot" --overwrite --profile "$PROFILE" --region "$REGION" >/dev/null
+  echo "[✔] Kafka 설치 완료 (bootstrap: $boot, NetworkPolicy: ${app_ns}→9092)"
+}
+
+install_tgb() {
+  # 내부 ALB(api-gateway, terraform)의 target group에 백엔드 서비스 파드를 등록한다.
+  # TGB의 targetGroupARN은 CR spec 필드라 ESO(Secret)로 못 채운다 → terraform이 PS /sb/{env}/tgb/*에
+  # 게시한 {arn, port} + alb_sg를 여기서 읽어 TargetGroupBinding을 만든다(terraform↔cluster 글루).
+  echo "=== TargetGroupBinding 생성 (내부 ALB ↔ 백엔드, PS /sb/${ENV}/tgb/*) ==="
+  local app_ns alb_sg names
+  app_ns=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[]" ' | cut -d, -f1 || true)
+  app_ns="${app_ns:-sb-${ENV}-app-ns}"
+  alb_sg=$(aws ssm get-parameter --name "/sb/${ENV}/tgb/alb_sg" --query Parameter.Value --output text \
+    --profile "$PROFILE" --region "$REGION" 2>/dev/null || true)
+  [ -n "$alb_sg" ] && [ "$alb_sg" != "None" ] || { echo "ERROR: /sb/${ENV}/tgb/alb_sg 없음 — api-gateway tgb_ssm_prefix apply 확인"; exit 1; }
+  names=$(aws ssm get-parameters-by-path --path "/sb/${ENV}/tgb" --query "Parameters[].Name" --output text \
+    --profile "$PROFILE" --region "$REGION" 2>/dev/null || true)
+  local n svc val arn port
+  for n in $names; do
+    svc="${n##*/}"
+    [ "$svc" = "alb_sg" ] && continue
+    val=$(aws ssm get-parameter --name "$n" --query Parameter.Value --output text --profile "$PROFILE" --region "$REGION" 2>/dev/null || true)
+    arn=$(echo "$val" | jq -r .arn)
+    port=$(echo "$val" | jq -r .port)
+    echo "[*] TGB: $svc (port $port)"
+    SVC="$svc" APP_NS="$app_ns" TG_ARN="$arn" PORT="$port" ALB_SG="$alb_sg" \
+      envsubst '${SVC} ${APP_NS} ${TG_ARN} ${PORT} ${ALB_SG}' < "$MF/targetgroupbinding.yaml" | kubectl apply -f -
+  done
+  echo "[✔] TargetGroupBinding 생성 완료 (ns: $app_ns)"
+}
+
 case "$PHASE" in
   cilium) install_cilium ;;
   alb)    install_alb ;;
   eso)    install_eso ;;
   ns)     ensure_app_namespaces ;;
   harbor) install_harbor ;;
-  all)    install_cilium; install_alb; install_eso; ensure_app_namespaces; install_harbor ;;
-  *) echo "ERROR: phase는 cilium|alb|eso|ns|harbor|all"; exit 1 ;;
+  kafka)  install_kafka ;;
+  tgb)    install_tgb ;;
+  all)    install_cilium; install_alb; install_eso; ensure_app_namespaces; install_harbor; install_kafka; install_tgb ;;
+  *) echo "ERROR: phase는 cilium|alb|eso|ns|harbor|kafka|tgb|all"; exit 1 ;;
 esac
 
 echo "✔ ${ENV}: k8s 스택 (${PHASE}) 설치 완료"

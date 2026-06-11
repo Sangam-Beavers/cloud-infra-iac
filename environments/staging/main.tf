@@ -214,6 +214,8 @@ module "api_gateway" {
   subnet_ids  = values(module.vpc.private_subnet_ids)
   kms_key_arn = module.kms.key_arn
   ssm_prefix  = "/sb/stage/api-gateway"
+  # 서비스별 TG ARN/포트 + ALB SG를 PS에 게시 → install-k8s-stack tgb phase가 읽어 TargetGroupBinding 생성
+  tgb_ssm_prefix = "/sb/stage/tgb"
 
   waf_rate_limit = var.api_gateway_config.waf_rate_limit
   services       = var.api_gateway_config.services

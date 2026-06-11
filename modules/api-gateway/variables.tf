@@ -23,6 +23,12 @@ variable "ssm_prefix" {
   type        = string
 }
 
+variable "tgb_ssm_prefix" {
+  description = "서비스별 {target group ARN, 컨테이너 포트}와 ALB SG를 게시할 SSM 접두사 (예: /sb/stage/tgb). install-k8s-stack의 tgb phase가 여기서 읽어 TargetGroupBinding을 만든다. 빈 값이면 게시 안 함"
+  type        = string
+  default     = ""
+}
+
 variable "listener_port" {
   description = "내부 ALB HTTP 리스너 포트"
   type        = number

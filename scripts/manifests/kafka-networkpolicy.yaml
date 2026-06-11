@@ -1,0 +1,28 @@
+# install-k8s-stack.sh install_kafka 가 적용 (A안 격리) — kafka ns 접근을 백엔드/operator로 제한.
+# PLAINTEXT라 네트워크 격리로 보호. podSelector는 gb-kafka의 Strimzi pod(브로커·entity-operator).
+# 렌더: APP_NS=.. envsubst '${APP_NS}' < 이파일 | kubectl apply -f -  (APP_NS=백엔드 네임스페이스)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kafka-allow-backend
+  namespace: kafka
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/cluster: gb-kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    # ① 같은 kafka ns 내부는 전 포트 허용 (cluster-operator·entity-operator ↔ broker 관리/복제/메타데이터)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kafka
+    # ② 백엔드 네임스페이스에서 client 9092만
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ${APP_NS}
+      ports:
+        - protocol: TCP
+          port: 9092
