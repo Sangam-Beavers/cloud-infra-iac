@@ -284,8 +284,8 @@ EKS 컨트롤플레인 감사 로그 (api, audit, authenticator)와 VPC Flow Log
 
 ### 7.1. 운영 전환 (실서비스 오픈 전)
 
-- [ ] Aurora: tfvars에서 `deletion_protection = true`, `skip_final_snapshot = false`로 활성 (모듈 배선 완료, 기본은 비활성)
-- [ ] Aurora prod: `serverless_min_acu` 상향 검토 (현재 0.5 — 콜드 응답 지연 가능)
+- [x] Aurora: prod tfvars에서 `deletion_protection = true`, `skip_final_snapshot = false` 활성
+- [x] Aurora prod: `serverless_min_acu = 1`로 상향 (콜드스타트 완화)
 - [x] EKS API private-only (`eks_config.endpoint_public_access = false`)
 - [x] EKS 노드: LT 태그 변경이 노드 롤링 교체를 유발함을 인지 (Name 태그는 고정값이라 평상시 롤링 없음 — 현상 유지)
 - [x] state를 S3 백엔드로 전환 (버킷 `global-bridge-tfstate-*`, 네이티브 락 — 5.4 참고)
