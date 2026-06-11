@@ -80,3 +80,9 @@ variable "deletion_protection" {
   type        = bool
   default     = false
 }
+
+variable "parameter_group_family" {
+  description = "클러스터 파라미터그룹 family (engine_version 메이저에 맞춤)"
+  type        = string
+  default     = "aurora-mysql8.0"
+}

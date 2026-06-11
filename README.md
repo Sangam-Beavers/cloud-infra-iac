@@ -289,10 +289,10 @@ EKS 컨트롤플레인 감사 로그 (api, audit, authenticator)와 VPC Flow Log
 - [x] EKS API private-only (`eks_config.endpoint_public_access = false`)
 - [x] EKS 노드: LT 태그 변경이 노드 롤링 교체를 유발함을 인지 (Name 태그는 고정값이라 평상시 롤링 없음 — 현상 유지)
 - [x] state를 S3 백엔드로 전환 (버킷 `global-bridge-tfstate-*`, 네이티브 락 — 5.4 참고)
-- [ ] CloudTrail: org-level/ControlTower 트레일 존재 확인 — 없으면 계정 멀티리전 trail 추가 (SSE-KMS S3 + log_file_validation). IaC 미정의 (IAM/KMS/SG 등 API 평면 변경 감사 공백)
-- [ ] 내부 ALB access_logs: 전용 S3 로그 버킷 + `access_logs` 블록 추가 (`modules/api-gateway`). per-target backend 포렌식 — HTTP API 스테이지 로그가 요청 단위는 이미 커버
-- [ ] WAF logging_configuration: CloudFront·ALB 두 web ACL에 추가 (CloudWatch/Firehose → S3). 현재는 메트릭·sampled_requests 뿐
-- [ ] Aurora CW 로그 수출: `enabled_cloudwatch_logs_exports` 추가 (`modules/aurora`). error/slowquery는 즉시 가능, audit는 cluster parameter group (server_audit) 필요
+- [x] CloudTrail: 멀티리전 trail (SSE-KMS S3 + log_file_validation) — `modules/cloudtrail`, stage 적용·콘솔 trail 교체 완료 (계정별 org 트레일 있으면 `enable_cloudtrail=false`)
+- [x] 내부 ALB access_logs: 전용 S3 로그 버킷 + `access_logs` 블록 (`modules/api-gateway`) — stage 적용
+- [x] WAF logging_configuration: CloudFront·ALB 두 web ACL에 CW Logs 연결 (`modules/edge`·`modules/api-gateway`) — stage 적용
+- [x] Aurora CW 로그 수출: `enabled_cloudwatch_logs_exports` + `server_audit` 파라미터그룹 (`modules/aurora`) — stage 적용 (audit는 재부팅 1회 필요할 수 있음)
 
 ### 7.2. Repo public 전환 전
 

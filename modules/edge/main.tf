@@ -340,3 +340,22 @@ resource "aws_route53_record" "alias" {
     evaluate_target_health = false
   }
 }
+
+# ---------------------------------------------------------------------------
+# CloudFront WAF 로깅 — 차단/탐지 전수 로그를 CW Logs(us-east-1)로.
+# CLOUDFRONT scope WAF 로깅은 반드시 us-east-1. 환경 CMK는 ap-northeast-2라
+# 못 쓰므로 AWS 관리형 키 (로그는 비밀 아님).
+# ---------------------------------------------------------------------------
+resource "aws_cloudwatch_log_group" "waf_cf" {
+  provider          = aws.us_east_1
+  name              = "aws-waf-logs-${var.name}-cf" # WAF 로깅은 이름 접두사 aws-waf-logs- 필수
+  retention_in_days = var.log_retention_in_days
+
+  tags = { Name = "aws-waf-logs-${var.name}-cf" }
+}
+
+resource "aws_wafv2_web_acl_logging_configuration" "cf" {
+  provider                = aws.us_east_1
+  log_destination_configs = [aws_cloudwatch_log_group.waf_cf.arn]
+  resource_arn            = aws_wafv2_web_acl.cf.arn
+}

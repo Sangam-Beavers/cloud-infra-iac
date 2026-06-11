@@ -53,3 +53,9 @@ variable "domain" {
   type        = string
   default     = ""
 }
+
+variable "log_retention_in_days" {
+  description = "CloudFront WAF 로그 (CW Logs, us-east-1) 보관 일수"
+  type        = number
+  default     = 30
+}

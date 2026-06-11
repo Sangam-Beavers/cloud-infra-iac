@@ -5,6 +5,9 @@
 # X-Origin-Verify 헤더를 검사해 수행한다 (WAF는 HTTP API에 직접 못 붙으므로 ALB에).
 # ---------------------------------------------------------------------------
 
+# 리전별 ELB 로그전송 계정 (AWS 소유) — ALB access_logs 버킷정책에 사용 (계정ID 하드코딩 회피)
+data "aws_elb_service_account" "current" {}
+
 # origin-verify 비밀 — CloudFront가 origin 요청에 넣는 헤더 값. WAF가 이 값과 대조.
 # special=false: 헤더/URL 이스케이프 없이 WAF byte-match와 바이트 단위로 일치
 resource "random_password" "origin_verify" {
@@ -85,6 +88,16 @@ resource "aws_lb" "this" {
 
   # 헤더 스무글링 방지 — 잘못된 헤더 필드 제거
   drop_invalid_header_fields = true
+
+  # per-target backend 포렌식 — 전용 버킷에 액세스 로그 (ALB는 SSE-S3만 지원)
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    prefix  = var.name
+    enabled = true
+  }
+
+  # 버킷정책이 먼저 있어야 ALB 생성 시 로그 쓰기검증 통과
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 
   tags = {
     Name = "${var.name}-alb"
@@ -312,4 +325,83 @@ resource "aws_wafv2_web_acl" "this" {
 resource "aws_wafv2_web_acl_association" "alb" {
   resource_arn = aws_lb.this.arn
   web_acl_arn  = aws_wafv2_web_acl.this.arn
+}
+
+# ---------------------------------------------------------------------------
+# ALB access_logs 전용 S3 버킷 — SSE-S3(AES256, ALB는 CMK 미지원), public 차단
+# ---------------------------------------------------------------------------
+resource "aws_s3_bucket" "alb_logs" {
+  bucket_prefix = "${var.name}-alb-logs-"
+
+  tags = { Name = "${var.name}-alb-logs" }
+}
+
+resource "aws_s3_bucket_public_access_block" "alb_logs" {
+  bucket                  = aws_s3_bucket.alb_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256" # ALB access_logs는 SSE-KMS 미지원
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  rule {
+    id     = "expire"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = var.log_retention_in_days
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowELBLogDelivery"
+      Effect    = "Allow"
+      Principal = { AWS = data.aws_elb_service_account.current.arn }
+      Action    = "s3:PutObject"
+      Resource  = "${aws_s3_bucket.alb_logs.arn}/*"
+    }]
+  })
+}
+
+# ---------------------------------------------------------------------------
+# ALB WAF 로깅 — 차단/탐지 전수 로그를 CW Logs로 (CMK 암호화, redact 민감 헤더)
+# ---------------------------------------------------------------------------
+resource "aws_cloudwatch_log_group" "waf_alb" {
+  name              = "aws-waf-logs-${var.name}-alb" # WAF 로깅은 이름 접두사 aws-waf-logs- 필수
+  retention_in_days = var.log_retention_in_days
+  kms_key_id        = var.kms_key_arn
+
+  tags = { Name = "aws-waf-logs-${var.name}-alb" }
+}
+
+resource "aws_wafv2_web_acl_logging_configuration" "alb" {
+  log_destination_configs = [aws_cloudwatch_log_group.waf_alb.arn]
+  resource_arn            = aws_wafv2_web_acl.this.arn
+
+  redacted_fields {
+    single_header {
+      name = "x-origin-verify"
+    }
+  }
+  redacted_fields {
+    single_header {
+      name = "authorization"
+    }
+  }
 }

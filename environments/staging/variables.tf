@@ -3,6 +3,12 @@ variable "project" {
   type        = string
 }
 
+variable "enable_cloudtrail" {
+  description = "계정 CloudTrail 생성 여부 (org/ControlTower 트레일이 이미 있으면 false)"
+  type        = bool
+  default     = true
+}
+
 variable "environment" {
   description = "환경 이름"
   type        = string

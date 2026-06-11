@@ -56,6 +56,10 @@ resource "aws_rds_cluster" "this" {
   # apply_immediately=true: 스펙/버전 변경을 유지보수 창구 대기 없이 즉시 반영 (운영 중 순단 가능)
   apply_immediately = true
 
+  # 감사/포렌식 로그를 CloudWatch Logs로 수출 (audit는 아래 파라미터그룹의 server_audit 필요)
+  enabled_cloudwatch_logs_exports = ["audit", "error", "slowquery"]
+  db_cluster_parameter_group_name = aws_rds_cluster_parameter_group.this.name
+
   # Serverless v2: 인스턴스 클래스가 db.serverless일 때 ACU 범위 지정
   dynamic "serverlessv2_scaling_configuration" {
     for_each = var.instance_class == "db.serverless" ? [1] : []
@@ -70,6 +74,25 @@ resource "aws_rds_cluster" "this" {
     # 논리 DB 목록 (부트스트랩 스크립트 참고용) — RDS 태그 값에 쉼표 불허, 공백 구분
     Databases = join(" ", var.databases)
   }
+}
+
+# 클러스터 파라미터그룹 — server_audit 플러그인으로 audit 로그 생성 (CW exports의 "audit"가 이걸 사용)
+resource "aws_rds_cluster_parameter_group" "this" {
+  name        = "${var.name}-cluster-params"
+  family      = var.parameter_group_family
+  description = "${var.name} aurora-mysql cluster params (server_audit logging)"
+
+  parameter {
+    name  = "server_audit_logging"
+    value = "1"
+  }
+  parameter {
+    # QUERY 전체는 볼륨 폭증 → 연결·DDL·DCL만 (접속·스키마변경·권한변경 추적)
+    name  = "server_audit_events"
+    value = "CONNECT,QUERY_DDL,QUERY_DCL"
+  }
+
+  tags = { Name = "${var.name}-cluster-params" }
 }
 
 resource "aws_rds_cluster_instance" "this" {

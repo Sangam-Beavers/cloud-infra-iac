@@ -39,6 +39,25 @@ resource "aws_kms_key" "this" {
           }
         }
       },
+      {
+        # CloudTrail이 이 CMK로 S3 로그 파일을 암호화하도록 위임 (modules/cloudtrail이 trail의 kms_key_id로 사용)
+        Sid       = "AllowCloudTrail"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action = [
+          "kms:GenerateDataKey*",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:Encrypt",
+          "kms:ReEncrypt*",
+        ]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:${data.aws_partition.current.partition}:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
+          }
+        }
+      },
     ]
   })
 

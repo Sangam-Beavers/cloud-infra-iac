@@ -181,6 +181,15 @@ module "kms" {
   deletion_window_in_days = var.kms_config.deletion_window_in_days
 }
 
+# 계정 API 평면 감사 추적 — 멀티리전 CloudTrail (org 트레일 있으면 enable_cloudtrail=false)
+module "cloudtrail" {
+  source = "../../modules/cloudtrail"
+
+  name        = "sb-stage-trail"
+  kms_key_arn = module.kms.key_arn
+  enabled     = var.enable_cloudtrail
+}
+
 # 하이브리드 DNS — 엔드포인트는 mgmt에. 연동 (enabled) 시에만 생성.
 module "route53_resolver" {
   source = "../../modules/route53-resolver"
