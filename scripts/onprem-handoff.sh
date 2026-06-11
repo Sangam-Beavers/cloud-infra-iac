@@ -7,12 +7,11 @@
 # 사용법: ./onprem-handoff.sh <prod|stage>
 # 생성물:
 #   secrets/.eks-cp-<env>-dns-ip           — pfSense DNS conditional forwarder 설정용
-#   secrets/.argocd-<env>-cluster.yaml     — 온프렘 ArgoCD에 바로 apply할 cluster Secret (연동 시)
+# (ArgoCD cluster Secret .argocd-<env>-cluster.yaml 은 이제 terraform local_sensitive_file이 apply/destroy로 관리)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 ENV=${1:?usage: onprem-handoff.sh <prod|stage>}
-REGION="${REGION:-ap-northeast-2}"
 cd "$(dirname "$0")/.."
 
 case "$ENV" in
@@ -38,7 +37,7 @@ fi
 mkdir -p secrets
 OUT="secrets/.eks-cp-${ENV}-dns-ip"
 
-# 환경별 파일 — 매번 덮어쓰기 (prefix 공존 없음, .argocd-<env>-cluster.yaml와 동일 방식)
+# 환경별 파일 — 매번 덮어쓰기 (prefix 공존 없음)
 cat > "$OUT" <<HDR
 # === EKS Control-Plane DNS ($ENV) — 온프렘 pfSense DNS Forwarding 설정 ===
 # private-only EKS의 API 엔드포인트 호스트명은 VPC 내부 private IP로만 해석된다.
@@ -51,61 +50,3 @@ HDR
 
 echo "기록됨: $OUT ($ENV)"
 cat "$OUT"
-
-# ---------------------------------------------------------------------------
-# ArgoCD cluster Secret — 온프렘 ArgoCD (devops-system NS) 에 바로 apply할 완성본 YAML.
-# argocd-iam 모듈 (연동 시) 이 만든 전용 IAM User 키 + 클러스터 접속 정보를 채워 생성한다.
-# ---------------------------------------------------------------------------
-ARN=$(cd "$TF_DIR" && terraform output -raw argocd_principal_arn 2>/dev/null || true)
-
-# principal이 비면 ArgoCD 미연동 (argocd-iam 모듈 미생성) — 핸드오프할 게 없으니 생략.
-if [ -z "$ARN" ]; then
-  echo "ArgoCD 미연동 ($ENV) — argocd-iam 없음, cluster 핸드오프 생략"
-  exit 0
-fi
-
-AKID=$(cd "$TF_DIR" && terraform output -raw argocd_access_key_id)
-SECRET=$(cd "$TF_DIR" && terraform output -raw argocd_secret_access_key)
-CLUSTER=$(cd "$TF_DIR" && terraform output -raw eks_cluster_name)
-CA=$(cd "$TF_DIR" && terraform output -raw eks_cluster_ca)
-NS=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[] "')
-
-# 네임스페이스 한정 Edit이라 ArgoCD도 namespaces로 같은 범위로 묶는다 (clusterResources는
-# namespaces 설정 시 기본 false라 생략). metadata.namespace는 ArgoCD가 도는 NS (고정),
-# stringData.namespaces는 EKS 관리 대상 NS. $HOST는 상단에서 계산된 엔드포인트 호스트.
-ARGO="secrets/.argocd-${ENV}-cluster.yaml"
-cat > "$ARGO" <<YAML
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${CLUSTER}
-  namespace: devops-system
-  labels:
-    argocd.argoproj.io/secret-type: cluster
-type: Opaque
-stringData:
-  name: ${CLUSTER}
-  server: https://${HOST}
-  namespaces: "${NS}"
-  config: |
-    {
-      "execProviderConfig": {
-        "apiVersion": "client.authentication.k8s.io/v1beta1",
-        "command": "argocd-k8s-auth",
-        "args": ["aws", "--cluster-name", "${CLUSTER}"],
-        "env": {
-          "AWS_ACCESS_KEY_ID": "${AKID}",
-          "AWS_SECRET_ACCESS_KEY": "${SECRET}",
-          "AWS_REGION": "${REGION}"
-        }
-      },
-      "tlsClientConfig": {
-        "insecure": false,
-        "caData": "${CA}"
-      }
-    }
-YAML
-chmod 600 "$ARGO"
-
-echo "기록됨: $ARGO ($ENV) — 시크릿 포함, 600 권한 (git 무시됨)"
-echo "  적용: kubectl -n devops-system apply -f $ARGO"

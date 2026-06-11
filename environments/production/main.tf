@@ -343,7 +343,7 @@ resource "aws_ssm_parameter" "frontend_deploy_targets" {
 }
 
 # apply 시 Jenkins 배포 자격증명을 secrets/.frontend-deploy-prod 에 자동 기록
-# (.eks-control-plane-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
+# (.eks-cp-<env>-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
 resource "local_sensitive_file" "frontend_deploy_handoff" {
   filename        = "${path.root}/../../secrets/.frontend-deploy-prod"
   file_permission = "0600"
@@ -358,4 +358,46 @@ resource "local_sensitive_file" "frontend_deploy_handoff" {
     "PROD_FRONTEND_DEPLOY_PRINCIPAL_ARN=${module.frontend_deploy_iam.principal_arn}",
     "",
   ])
+}
+
+# 온프렘 ArgoCD cluster Secret — apply 시 자동 기록·destroy 시 자동 삭제 (.frontend-deploy와 동일 패턴).
+# argocd-iam 키 등 민감값을 담아 terraform이 라이프사이클 관리 (스크립트 산출물처럼 잔재로 안 남음).
+# 온프렘 연동 시에만 생성. 적용: kubectl -n devops-system apply -f secrets/.argocd-prod-cluster.yaml
+resource "local_sensitive_file" "argocd_cluster_handoff" {
+  count = local.onprem_enabled ? 1 : 0
+
+  filename        = "${path.root}/../../secrets/.argocd-prod-cluster.yaml"
+  file_permission = "0600"
+
+  content = yamlencode({
+    apiVersion = "v1"
+    kind       = "Secret"
+    metadata = {
+      name      = module.eks.cluster_name
+      namespace = "devops-system"
+      labels    = { "argocd.argoproj.io/secret-type" = "cluster" }
+    }
+    type = "Opaque"
+    stringData = {
+      name       = module.eks.cluster_name
+      server     = module.eks.cluster_endpoint
+      namespaces = join(",", var.onprem_integration.argocd_namespaces)
+      config = jsonencode({
+        execProviderConfig = {
+          apiVersion = "client.authentication.k8s.io/v1beta1"
+          command    = "argocd-k8s-auth"
+          args       = ["aws", "--cluster-name", module.eks.cluster_name]
+          env = {
+            AWS_ACCESS_KEY_ID     = module.argocd_iam[0].access_key_id
+            AWS_SECRET_ACCESS_KEY = module.argocd_iam[0].secret_access_key
+            AWS_REGION            = var.aws_region
+          }
+        }
+        tlsClientConfig = {
+          insecure = false
+          caData   = module.eks.cluster_certificate_authority_data
+        }
+      })
+    }
+  })
 }
