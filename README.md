@@ -305,7 +305,8 @@ EKS 컨트롤플레인 감사 로그 (api, audit, authenticator)와 VPC Flow Log
 
 ### 7.3. 팀 조율 필요
 
-- [ ] Cognito `custom:public_id` 사용자 쓰기 차단 — app client `write_attributes` 허용목록에서 `custom:public_id` 제외. 프론트가 self-service로 쓰는 속성 확인 후 확정 (잘못 제한 시 프로필 수정 기능 깨짐). 근본 차단 (스키마 `mutable=false` / `developer_only_attribute=true`)은 Cognito 특성상 풀 재생성 필요. 미차단 시 사용자가 `UpdateUserAttributes`로 public_id를 타인 값으로 위조 → member가 신원 식별자로 신뢰하면 수평적 권한 상승
+- [x] Cognito `custom:public_id` 사용자 쓰기 차단 — app client `write_attributes`를 표준 속성만 허용 (`custom:public_id` 제외). stage 적용·검증 완료 (프론트는 Cognito SDK 미사용이라 무영향, member는 Admin API로 set). 미차단 시 SRP 경로 `UpdateUserAttributes`로 public_id 위조 → 수평적 권한 상승
+- [ ] (선택·defense-in-depth) 백엔드가 mutable claim(`public_id`)을 단독 신원으로 신뢰하는 구조 검토 — `sub`(불변) 기반 식별 + member DB의 sub→public_id 매핑을 권위 소스로 (백엔드 아키텍처, 팀 판단)
 
 ## 8. 라이선스
 

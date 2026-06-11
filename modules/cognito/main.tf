@@ -146,6 +146,14 @@ resource "aws_cognito_user_pool_client" "frontend" {
   allowed_oauth_scopes                 = ["email", "openid", "phone", "profile"]
   supported_identity_providers         = ["COGNITO"]
 
+  # custom:public_id 쓰기 차단 — 사용자가 UpdateUserAttributes(SRP 경로 포함)로 위조하면 신원 도용.
+  # 표준 속성만 허용. public_id는 member가 Admin API로만 설정 (write_attributes 무관).
+  write_attributes = [
+    "address", "birthdate", "email", "family_name", "gender", "given_name",
+    "locale", "middle_name", "name", "nickname", "phone_number", "picture",
+    "preferred_username", "profile", "updated_at", "website", "zoneinfo",
+  ]
+
   callback_urls = var.callback_urls
   logout_urls   = var.logout_urls
 
