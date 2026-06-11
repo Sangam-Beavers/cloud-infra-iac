@@ -1,0 +1,54 @@
+# install-k8s-stack.sh install_harbor 가 적용 (정적, 치환 없음) — 노드 containerd가 사내 CA를 신뢰하게.
+# CA는 ConfigMap harbor-ca(=secrets/sb-local-ca.crt)로 주입한다. certs.d/hosts.toml은 containerd 2.1+
+# (transfer service)에서 무시될 수 있어, 버전 무관하게 동작하는 시스템 신뢰스토어(/etc/pki/ca-trust)에 넣고
+# containerd를 1회 재시작한다. 실행 중 컨테이너는 shim이 유지하므로 재시작에도 생존한다.
+# args의 $( )·$VAR는 컨테이너 런타임 /bin/sh가 평가하는 표현식이므로 그대로 둔다 (envsubst로 렌더하지 않음).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: harbor-ca-trust
+  namespace: kube-system
+  labels: { app: harbor-ca-trust }
+spec:
+  selector:
+    matchLabels: { app: harbor-ca-trust }
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 1 }
+  template:
+    metadata:
+      labels: { app: harbor-ca-trust }
+    spec:
+      hostPID: true
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: install-ca
+          image: public.ecr.aws/amazonlinux/amazonlinux:2023
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              command -v nsenter >/dev/null 2>&1 || dnf install -y util-linux-core >/dev/null 2>&1 || true
+              # 앵커 파일이 없거나 내용이 다를 때만 설치+재시작 (재시작 루프 방지)
+              if [ -f /host-anchors/sb-local-ca.crt ] && \
+                 [ "$(cat /host-anchors/sb-local-ca.crt)" = "$(cat /ca/sb-local-ca.crt)" ]; then
+                echo "사내 CA 이미 신뢰됨 — skip"
+              else
+                cat /ca/sb-local-ca.crt > /host-anchors/sb-local-ca.crt
+                nsenter --target 1 --mount --uts --ipc --net --pid -- update-ca-trust
+                nsenter --target 1 --mount --uts --ipc --net --pid -- systemctl restart containerd
+                echo "사내 CA 설치 + containerd 재시작 완료"
+              fi
+              exec sleep infinity
+          volumeMounts:
+            - { name: ca, mountPath: /ca, readOnly: true }
+            - { name: host-anchors, mountPath: /host-anchors }
+      volumes:
+        - name: ca
+          configMap: { name: harbor-ca }
+        - name: host-anchors
+          hostPath: { path: /etc/pki/ca-trust/source/anchors, type: DirectoryOrCreate }

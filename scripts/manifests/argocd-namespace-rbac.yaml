@@ -1,0 +1,33 @@
+# install-k8s-stack.sh ensure_app_namespaces 가 ArgoCD 배포 네임스페이스마다 적용 — 보충 RBAC.
+# ArgoCD 캐시 동기화(drift 감지)는 네임스페이스의 '모든' 리소스 타입을 list하는데, AmazonEKSEditPolicy는
+# 일부 타입(CRD·CSIStorageCapacity 등)에 read를 안 줘 forbidden이 난다. 그룹별 추가는 whack-a-mole이라
+# 네임스페이스 read-all + stack CRD 쓰기로 보충한다. access entry의 K8s username이 곧 principal ARN이라 그 User에 바인딩.
+# 렌더: ns=.. argo_arn=.. envsubst '${ns} ${argo_arn}' < 이파일 | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-crd-edit
+  namespace: ${ns}
+rules:
+  # 캐시 동기화용 — 네임스페이스의 모든 리소스 타입 list (EditPolicy 미포함분 read 보충)
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # ArgoCD가 배포·관리하는 stack CRD는 쓰기까지 (Edit 미포함분)
+  - apiGroups: ["cilium.io", "external-secrets.io", "elbv2.k8s.aws"]
+    resources: ["*"]
+    verbs: ["create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-crd-edit
+  namespace: ${ns}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-crd-edit
+subjects:
+  - kind: User
+    name: ${argo_arn}
+    apiGroup: rbac.authorization.k8s.io

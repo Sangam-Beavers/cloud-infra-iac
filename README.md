@@ -64,8 +64,8 @@ Terraform ≥ 1.15, AWS CLI, jq, make, session-manager-plugin이 필요합니다
 3. **secrets/ 입력 채우기**: `secrets/*.example`을 확장자 `.example`을 뗀 이름으로 복사해 값을 채웁니다 (`.example`만 커밋되고 실제 파일은 gitignore). 필요한 것:
    - `wg.prod.env` · `wg.stg.env` — WireGuard 키 (팀 비밀 채널로 수령 — apply 후 `make vpn-{prod,stage}`이 SSM에 등록)
    - `domain.env` — prod 커스텀 도메인 `GB_PROD_DOMAIN` (비우면 기본 `*.cloudfront.net`, stage는 항상 기본)
-   - `sb.harbor.env` — 온프렘 연동 시 Harbor robot 자격증명 `NAME` / `SECRET` (이미지 pull용, 비연동이면 불필요)
-   - `sb-local-ca.crt` — 사내 로컬 CA 인증서 (내부 TLS 신뢰 앵커 — 클러스터/온프렘 내부 통신 검증용)
+   - `sb.harbor.env` — 온프렘 연동 시 Harbor robot 자격증명 `NAME` / `SECRET` + 레지스트리 `HOST` (이미지 pull용, 비연동이면 불필요 — `k8s-stack` harbor phase가 SM 등록 + harbor-dockercfg ExternalSecret 생성)
+   - `sb-local-ca.crt` — 사내 로컬 CA 인증서 (내부 TLS 신뢰 앵커 — 클러스터/온프렘 내부 통신 검증용 — `k8s-stack` harbor phase가 노드 신뢰스토어에 주입)
 
 ```bash
 aws configure --profile <PROFILE>               # 최초 1회 (Makefile의 PROFILE과 같은 이름)

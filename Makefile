@@ -127,10 +127,10 @@ destroy-stage: ## staging 전체 삭제 (확인 입력 필요)
 	cd $(STAGE) && $(TF_INIT) >/dev/null && terraform destroy
 
 # ---------- k8s 스택 설치 (Cilium / ALB / ESO — apply 직후 CNI 공백 닫기) ----------
-k8s-stack-prod: ## prod: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|all)
+k8s-stack-prod: ## prod: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|ns|harbor|all)
 	./scripts/install-k8s-stack.sh prod $(PHASE)
 
-k8s-stack-stage: ## stage: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|all)
+k8s-stack-stage: ## stage: Cilium + ALB Controller + ESO 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|ns|harbor|all)
 	./scripts/install-k8s-stack.sh stage $(PHASE)
 
 # ---------- 부트스트랩 (apply 완료 후 실행) ----------

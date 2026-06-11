@@ -8,7 +8,8 @@
 # (파드가 VPC IP → ALB target-type=ip 직접 연동). 비밀은 AWS Secrets Manager + ESO.
 #
 # 사용법: ./install-k8s-stack.sh <prod|stage> [phase] [profile]
-#   phase: cilium | alb | eso | ns | all (기본 all). ns=ArgoCD 배포 네임스페이스 사전 생성
+#   phase: cilium | alb | eso | ns | harbor | all (기본 all). ns=ArgoCD 배포 네임스페이스
+#          사전 생성, harbor=노드 사내 CA 신뢰(DaemonSet) + harbor-dockercfg(ExternalSecret)
 # 전제: 해당 환경 apply 완료 (cni=cilium), terraform output 사용 가능
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -25,6 +26,11 @@ case "$ENV" in
   stage) TF_DIR=environments/staging ;;
   *) echo "ERROR: env는 prod|stage"; exit 1 ;;
 esac
+
+# k8s 매니페스트는 scripts/manifests/*.yaml로 분리 — 정적은 그대로 apply, 템플릿(${VAR})은
+# envsubst로 지정 변수만 렌더해 apply한다 (cd로 cwd가 repo 루트라 상대경로 OK).
+MF="scripts/manifests"
+command -v envsubst >/dev/null 2>&1 || { echo "ERROR: envsubst 필요 — brew install gettext (mac) / apt-get install gettext-base (linux)"; exit 1; }
 
 CLUSTER="sb-${ENV}-eks"
 ENDPOINT=$(cd "$TF_DIR" && terraform output -raw eks_cluster_endpoint)
@@ -136,54 +142,78 @@ install_eso() {
     --set serviceAccount.create=false \
     --set serviceAccount.name=external-secrets \
     --wait --timeout 5m
-  # 클러스터 전역 SecretStore 2종 — 비밀은 Secrets Manager, 비밀 아닌 인프라 동적값은 Parameter Store.
-  # 같은 ESO ServiceAccount(IRSA)를 쓴다 (역할에 secretsmanager + ssm 권한 모두 부여됨).
-  kubectl apply -f - <<EOF
-apiVersion: external-secrets.io/v1
-kind: ClusterSecretStore
-metadata:
-  name: aws-secrets-manager
-spec:
-  provider:
-    aws:
-      service: SecretsManager
-      region: ${REGION}
-      auth:
-        jwt:
-          serviceAccountRef:
-            name: external-secrets
-            namespace: external-secrets
----
-apiVersion: external-secrets.io/v1
-kind: ClusterSecretStore
-metadata:
-  name: aws-parameter-store
-spec:
-  provider:
-    aws:
-      service: ParameterStore
-      region: ${REGION}
-      auth:
-        jwt:
-          serviceAccountRef:
-            name: external-secrets
-            namespace: external-secrets
-EOF
+  # 클러스터 전역 SecretStore 2종 (scripts/manifests/cluster-secret-stores.yaml) — 비밀은 Secrets
+  # Manager, 비밀 아닌 인프라 동적값은 Parameter Store. 같은 ESO ServiceAccount(IRSA)를 쓴다.
+  REGION="$REGION" envsubst '${REGION}' < "$MF/cluster-secret-stores.yaml" | kubectl apply -f -
   echo "[✔] ESO + ClusterSecretStore(SecretsManager·ParameterStore) 설치 완료"
 }
 
 ensure_app_namespaces() {
   # 온프렘 ArgoCD는 네임스페이스 한정 Edit으로 접근한다 — 한정 스코프는 네임스페이스를
   # '생성'하지 못하므로 (cluster-scoped), 배포 대상 네임스페이스를 미리 만들어 둔다 (멱등).
-  local ns_csv
+  # 또 ArgoCD 캐시 동기화(drift 감지)는 네임스페이스의 '모든' 리소스 타입을 list하는데,
+  # AmazonEKSEditPolicy(edit 롤)는 일부 타입(CRD·CSIStorageCapacity 등)에 read를 안 줘 forbidden이
+  # 난다. 그룹별 추가는 whack-a-mole이라, 네임스페이스 read-all + stack CRD 쓰기 보충 RBAC를
+  # 적용한다 — access entry의 K8s username이 곧 principal ARN이라 그 User에 바인딩.
+  local ns_csv argo_arn
   ns_csv=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[]" ' || true)
   [ -n "$ns_csv" ] || { echo "=== ArgoCD 배포 네임스페이스 없음 (argocd_namespaces 비어있음) — 생략 ==="; return 0; }
-  echo "=== ArgoCD 배포 네임스페이스 사전 생성 ==="
+  argo_arn=$(cd "$TF_DIR" && terraform output -raw argocd_principal_arn 2>/dev/null || true)
+  echo "=== ArgoCD 배포 네임스페이스 사전 생성 + CRD RBAC 보충 ==="
   local ns
   for ns in ${ns_csv//,/ }; do
     [ -n "$ns" ] || continue
     kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+    # 보충 RBAC (scripts/manifests/argocd-namespace-rbac.yaml) — read-all + stack CRD 쓰기
+    [ -n "$argo_arn" ] && ns="$ns" argo_arn="$argo_arn" \
+      envsubst '${ns} ${argo_arn}' < "$MF/argocd-namespace-rbac.yaml" | kubectl apply -f -
   done
+}
+
+install_harbor() {
+  # 온프렘 Harbor에서 이미지를 pull하려면 두 가지가 필요하다 (aa6f6b6이 경로/DNS/prep까지만 하고
+  # 노드 측 설정으로 남겨둔 부분): ① 노드 containerd가 사내 CA로 서명된 Harbor TLS를 신뢰,
+  # ② robot 자격증명으로 만든 dockerconfigjson pull secret. 둘 다 멱등.
+  echo "=== Harbor pull 활성화 (노드 CA 신뢰 DaemonSet + harbor-dockercfg ExternalSecret) ==="
+  local ca_file="secrets/sb-local-ca.crt" env_file="secrets/sb.harbor.env"
+  [ -f "$ca_file" ]  || { echo "ERROR: $ca_file 없음 (사내 로컬 CA prep 필요)"; exit 1; }
+  [ -f "$env_file" ] || { echo "ERROR: $env_file 없음 (Harbor robot 자격증명 prep 필요)"; exit 1; }
+
+  # --- ① 노드 사내 CA 신뢰 (Harbor TLS x509 해소) — 상세는 매니페스트 헤더 참조 ---
+  # CA를 ConfigMap harbor-ca로 주입하고, DaemonSet이 노드 시스템 신뢰스토어에 넣어 containerd가 신뢰하게 한다.
+  kubectl -n kube-system create configmap harbor-ca \
+    --from-file=sb-local-ca.crt="$ca_file" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f "$MF/harbor-ca-daemonset.yaml"
+
+  # --- ② Harbor robot 자격증명 → SM 등록 → ExternalSecret으로 harbor-dockercfg 생성 ---
+  # 파일을 source하지 않는다 (NAME에 '$'·'+' 포함 → 셸 확장 사고 방지). cut으로 안전 추출.
+  local hname hsecret hhost
+  hname=$(grep -E '^NAME='   "$env_file" | head -1 | cut -d= -f2-)
+  hsecret=$(grep -E '^SECRET=' "$env_file" | head -1 | cut -d= -f2-)
+  hhost=$(grep -E '^HOST='   "$env_file" | head -1 | cut -d= -f2-)
+  [ -n "$hname" ] && [ -n "$hsecret" ] && [ -n "$hhost" ] || {
+    echo "ERROR: $env_file에 NAME/SECRET/HOST 모두 필요"; exit 1; }
+
+  local sm_name="sb/${ENV}/harbor/robot" sm_json
+  sm_json=$(jq -nc --arg u "$hname" --arg p "$hsecret" '{username:$u,password:$p}')
+  echo "[*] SM 등록: $sm_name (ESO 스코프 sb/${ENV}/* 내)"
+  aws secretsmanager put-secret-value --secret-id "$sm_name" --secret-string "$sm_json" \
+    --profile "$PROFILE" --region "$REGION" >/dev/null 2>&1 || \
+  aws secretsmanager create-secret --name "$sm_name" --secret-string "$sm_json" \
+    --description "Harbor robot 자격증명 (ESO → harbor-dockercfg)" \
+    --profile "$PROFILE" --region "$REGION" >/dev/null
+
+  # harbor-dockercfg는 앱이 imagePullSecrets로 참조하는 네임스페이스(=ArgoCD 배포 대상)에 생성.
+  local ns_csv ns
+  ns_csv=$(cd "$TF_DIR" && terraform output -json argocd_namespaces 2>/dev/null | tr -d '[]" ' || true)
+  [ -n "$ns_csv" ] || { echo "=== 앱 네임스페이스 없음 (argocd_namespaces 비어있음) — ExternalSecret 생략 ==="; return 0; }
+  for ns in ${ns_csv//,/ }; do
+    [ -n "$ns" ] || continue
+    # harbor-dockercfg ExternalSecret (scripts/manifests/harbor-dockercfg-externalsecret.yaml)
+    ns="$ns" hhost="$hhost" sm_name="$sm_name" \
+      envsubst '${ns} ${hhost} ${sm_name}' < "$MF/harbor-dockercfg-externalsecret.yaml" | kubectl apply -f -
+  done
+  echo "[✔] Harbor pull 활성화 완료 (CA DaemonSet + harbor-dockercfg)"
 }
 
 case "$PHASE" in
@@ -191,8 +221,9 @@ case "$PHASE" in
   alb)    install_alb ;;
   eso)    install_eso ;;
   ns)     ensure_app_namespaces ;;
-  all)    install_cilium; install_alb; install_eso; ensure_app_namespaces ;;
-  *) echo "ERROR: phase는 cilium|alb|eso|ns|all"; exit 1 ;;
+  harbor) install_harbor ;;
+  all)    install_cilium; install_alb; install_eso; ensure_app_namespaces; install_harbor ;;
+  *) echo "ERROR: phase는 cilium|alb|eso|ns|harbor|all"; exit 1 ;;
 esac
 
 echo "✔ ${ENV}: k8s 스택 (${PHASE}) 설치 완료"
