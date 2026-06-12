@@ -29,8 +29,7 @@
       "Sid": "InvokeChatbotFunctionUrl",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunctionUrl",
-      "Resource": "${function_arn}",
-      "Condition": { "StringEquals": { "lambda:FunctionUrlAuthType": "AWS_IAM" } }
+      "Resource": "${function_arn}"
     }
   ]
 }
