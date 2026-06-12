@@ -9,7 +9,7 @@ variable "vpc_id" {
 }
 
 variable "subnet_ids" {
-  description = "리졸버 엔드포인트 ENI를 배치할 서브넷 (mgmt — on-prem 대면 tier). 최소 2개 (2 AZ) 필요"
+  description = "리졸버 엔드포인트 ENI를 배치할 서브넷 (mgmt — on-prem 대면 tier). 최소 2개 (2 AZ)가 필요합니다."
   type        = list(string)
 
   validation {
@@ -18,13 +18,13 @@ variable "subnet_ids" {
   }
 }
 
-# --- INBOUND (on-prem → AWS): on-prem이 EKS private 엔드포인트 호스트명을 해석 ---
+# --- INBOUND (on-prem → AWS): on-prem이 EKS private 엔드포인트 호스트명을 해석합니다 ---
 variable "inbound_allowed_cidrs" {
   description = "inbound 엔드포인트 (53)에 질의를 허용할 소스 — on-prem 리졸버/대역 (예: pfSense)"
   type        = list(string)
 }
 
-# --- OUTBOUND (AWS → on-prem): EKS 노드가 harbor.corp.example 등 on-prem 도메인을 해석 ---
+# --- OUTBOUND (AWS → on-prem): EKS 노드가 harbor.corp.example 등 on-prem 도메인을 해석합니다 ---
 variable "forward_domains" {
   description = "on-prem DNS로 포워딩할 도메인 목록 (예: [\"corp.example\"])"
   type        = list(string)

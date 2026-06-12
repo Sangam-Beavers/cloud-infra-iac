@@ -1,6 +1,6 @@
-# install-k8s-stack.sh install_kafka 가 적용 — gb-kafka 토픽(자동생성 금지, 선언적).
-# 백엔드 스펙: main 3종(파티션 3·7일 보관), DLT 3종(파티션 1). 단일 브로커라 전부 replicas 1.
-# DLT는 토픽명이 대문자(.DLT)라 K8s 이름 규칙(소문자) 위배 → metadata.name은 소문자, 실제명은 spec.topicName.
+# install-k8s-stack.sh 의 install_kafka 가 적용하는 gb-kafka 토픽입니다 (자동생성 금지, 선언적).
+# 백엔드 스펙은 main 3종 (파티션 3·7일 보관)과 DLT 3종 (파티션 1)이며, 단일 브로커라 전부 replicas 1입니다.
+# DLT 는 토픽명이 대문자 (.DLT)라 K8s 이름 규칙 (소문자)에 어긋나므로 metadata.name 은 소문자로 두고 실제명은 spec.topicName 에 둡니다.
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
@@ -12,7 +12,7 @@ spec:
   partitions: 3
   replicas: 1
   config:
-    retention.ms: "604800000"   # 7일
+    retention.ms: "604800000"   # 7일 보관
 ---
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic

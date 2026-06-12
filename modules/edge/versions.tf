@@ -5,7 +5,7 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
-      # CLOUDFRONT scope WAFv2·ACM은 us-east-1 전용이라 별칭 provider를 받는다
+      # CLOUDFRONT scope WAFv2와 ACM은 us-east-1 전용이라 별칭 provider를 받습니다.
       configuration_aliases = [aws.us_east_1]
     }
   }

@@ -6,7 +6,7 @@ locals {
 }
 
 # ---------------------------------------------------------------------------
-# Pre-Token Generation Lambda — custom:public_id를 토큰 클레임에 주입 (V3).
+# Pre-Token Generation Lambda — custom:public_id를 토큰 클레임에 주입합니다 (V3).
 # ---------------------------------------------------------------------------
 data "archive_file" "pretoken" {
   type        = "zip"
@@ -47,7 +47,7 @@ resource "aws_lambda_function" "pretoken" {
   tags = { Name = "${var.name}-pretoken-public-id" }
 }
 
-# Cognito가 트리거를 invoke할 수 있게 (이 풀로만 제한)
+# Cognito가 트리거를 invoke할 수 있게 허용하되 이 풀로만 제한합니다.
 resource "aws_lambda_permission" "cognito" {
   statement_id  = "AllowCognitoInvoke"
   action        = "lambda:InvokeFunction"
@@ -91,7 +91,7 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
-  # 백엔드 공개 식별자 — pre-token Lambda가 토큰 클레임 public_id로 승격
+  # 백엔드 공개 식별자입니다. pre-token Lambda가 토큰 클레임 public_id로 승격합니다.
   schema {
     name                     = "public_id"
     attribute_data_type      = "String"
@@ -112,7 +112,7 @@ resource "aws_cognito_user_pool" "this" {
   lambda_config {
     pre_token_generation_config {
       lambda_arn     = aws_lambda_function.pretoken.arn
-      lambda_version = "V3_0" # 코드가 claimsAndScopeOverrideDetails 사용
+      lambda_version = "V3_0" # 코드가 claimsAndScopeOverrideDetails를 사용하기 때문입니다.
     }
   }
 
@@ -127,13 +127,13 @@ resource "aws_cognito_user_pool_domain" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# App Client — 프론트 SPA (public, OAuth code + Hosted UI). callback은 CloudFront.
+# App Client — 프론트 SPA (public, OAuth code + Hosted UI)용입니다. callback은 CloudFront를 가리킵니다.
 # ---------------------------------------------------------------------------
 resource "aws_cognito_user_pool_client" "frontend" {
   name         = "${var.name}-frontend"
   user_pool_id = aws_cognito_user_pool.this.id
 
-  generate_secret = false # public client (SPA, PKCE)
+  generate_secret = false # public client (SPA, PKCE)이므로 시크릿을 발급하지 않습니다.
 
   explicit_auth_flows = [
     "ALLOW_REFRESH_TOKEN_AUTH",
@@ -146,8 +146,8 @@ resource "aws_cognito_user_pool_client" "frontend" {
   allowed_oauth_scopes                 = ["email", "openid", "phone", "profile"]
   supported_identity_providers         = ["COGNITO"]
 
-  # custom:public_id 쓰기 차단 — 사용자가 UpdateUserAttributes(SRP 경로 포함)로 위조하면 신원 도용.
-  # 표준 속성만 허용. public_id는 member가 Admin API로만 설정 (write_attributes 무관).
+  # custom:public_id 쓰기를 차단합니다. 사용자가 UpdateUserAttributes (SRP 경로 포함)로 위조하면 신원 도용으로 이어집니다.
+  # 표준 속성만 허용하며, public_id는 member가 Admin API로만 설정합니다 (write_attributes와 무관).
   write_attributes = [
     "address", "birthdate", "email", "family_name", "gender", "given_name",
     "locale", "middle_name", "name", "nickname", "phone_number", "picture",
@@ -170,7 +170,7 @@ resource "aws_cognito_user_pool_client" "frontend" {
 }
 
 # ---------------------------------------------------------------------------
-# member-service IRSA — Cognito 사용자 관리 API (provisioning). 액세스 키 없이 SA로.
+# member-service IRSA — Cognito 사용자 관리 API (provisioning)용입니다. 액세스 키 없이 SA로 권한을 받습니다.
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "member_assume" {
   statement {
@@ -222,10 +222,10 @@ resource "aws_iam_role_policy" "member" {
 }
 
 # ---------------------------------------------------------------------------
-# Cognito 식별자/주소 → SSM Parameter Store (인프라-생성값, 비밀 아님). 소비처별로 분리.
-#   member 백엔드 (JWT 검증 + admin API): issuer/region/pool-id — ESO 런타임 주입
-#   프론트 (OAuth 직접 수행): client-id + 엔드포인트 + redirect/logout — Jenkins 빌드 타임 주입
-# client secret 없음 (public client) 이라 SM 불필요.
+# Cognito 식별자/주소를 SSM Parameter Store에 기록합니다 (인프라가 생성한 값이며 비밀은 아닙니다). 소비처별로 분리합니다.
+#   member 백엔드 (JWT 검증 + admin API): issuer/region/pool-id — ESO가 런타임에 주입합니다.
+#   프론트 (OAuth 직접 수행): client-id + 엔드포인트 + redirect/logout — Jenkins가 빌드 타임에 주입합니다.
+# client secret이 없는 public client이므로 Secrets Manager는 필요하지 않습니다.
 # ---------------------------------------------------------------------------
 locals {
   hosted_ui = "https://${aws_cognito_user_pool_domain.this.domain}.auth.${data.aws_region.current.region}.amazoncognito.com"
@@ -237,7 +237,7 @@ locals {
     COGNITO_USER_POOL_ID = aws_cognito_user_pool.this.id
   }
 
-  # 첫 요소 = prod CloudFront URL (Cognito client에 등록한 callback/logout과 동일해야 함)
+  # 첫 요소는 prod CloudFront URL이며, Cognito client에 등록한 callback/logout과 동일해야 합니다.
   frontend_params = {
     VITE_OIDC_CLIENT_ID                = aws_cognito_user_pool_client.frontend.id
     VITE_OIDC_AUTHORIZE_ENDPOINT       = "${local.hosted_ui}/oauth2/authorize"

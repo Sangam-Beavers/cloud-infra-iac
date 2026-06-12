@@ -3,12 +3,12 @@ data "aws_region" "current" {}
 data "aws_partition" "current" {}
 
 # ---------------------------------------------------------------------------
-# 온프렘 Jenkins 전용 IAM User — 정적 액세스 키 (클러스터/AWS 밖이라 IRSA 불가).
-# 프론트 배포 파이프라인 최소권한: SPA 버킷 sync + 프론트 PS 읽기 + CloudFront 무효화.
+# 온프렘 Jenkins 전용 IAM User — 정적 액세스 키를 씁니다 (클러스터/AWS 밖이라 IRSA 불가).
+# 프론트 배포 파이프라인 최소권한으로, SPA 버킷 sync·프론트 PS 읽기·CloudFront 무효화만 허용합니다.
 # ---------------------------------------------------------------------------
 resource "aws_iam_user" "this" {
   name          = var.name
-  force_destroy = true # 액세스 키가 남아도 destroy가 막히지 않게
+  force_destroy = true # 액세스 키가 남아도 destroy가 막히지 않게 합니다.
 
   tags = { Name = var.name }
 }
@@ -39,8 +39,8 @@ resource "aws_iam_user_policy" "this" {
         Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.spa_bucket}/*"
       },
       {
-        # 빌드 타임에 VITE_OIDC_* 읽기 — 이 환경 프론트 파라미터만 (least-privilege).
-        # GetParametersByPath는 "경로" ARN (접미사 /* 없음)을, GetParameter는 개별 파라미터 (/*)를 검사하므로 둘 다 허용.
+        # 빌드 타임에 VITE_OIDC_* 를 읽습니다 — 이 환경 프론트 파라미터로만 한정합니다 (least-privilege).
+        # GetParametersByPath는 "경로" ARN (접미사 /* 없음)을, GetParameter는 개별 파라미터 (/*)를 검사하므로 둘 다 허용합니다.
         Sid    = "FrontendParamsRead"
         Effect = "Allow"
         Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]

@@ -25,7 +25,7 @@ variable "logout_urls" {
 }
 
 variable "deletion_protection" {
-  description = "풀 삭제 보호. stage는 INACTIVE (destroy 가능), prod는 ACTIVE 권장"
+  description = "풀 삭제 보호. stage는 INACTIVE (destroy 가능), prod는 ACTIVE를 권장합니다"
   type        = string
   default     = "INACTIVE"
 
@@ -47,7 +47,7 @@ variable "oidc_issuer_url" {
 }
 
 variable "member_service_account" {
-  description = "member-service 파드의 ServiceAccount (이 SA만 Cognito 관리 역할을 assume). 앱 Deployment의 SA와 정확히 일치해야 함"
+  description = "member-service 파드의 ServiceAccount (이 SA만 Cognito 관리 역할을 assume). 앱 Deployment의 SA와 정확히 일치해야 합니다"
   type = object({
     namespace = string
     name      = string
@@ -55,11 +55,11 @@ variable "member_service_account" {
 }
 
 variable "member_ssm_prefix" {
-  description = "member 백엔드용 Cognito 값(issuer/region/pool-id)을 기록할 SSM 경로 접두사 (예: /sb/stage/member). ESO가 읽어 파드에 주입"
+  description = "member 백엔드용 Cognito 값(issuer/region/pool-id)을 기록할 SSM 경로 접두사 (예: /sb/stage/member). ESO가 읽어 파드에 주입합니다"
   type        = string
 }
 
 variable "frontend_ssm_prefix" {
-  description = "프론트(빌드 타임)용 OIDC 값을 기록할 SSM 경로 접두사 (예: /sb/stage/frontend). Jenkins가 vite build 전에 읽어 VITE_OIDC_* 주입"
+  description = "프론트(빌드 타임)용 OIDC 값을 기록할 SSM 경로 접두사 (예: /sb/stage/frontend). Jenkins가 vite build 전에 읽어 VITE_OIDC_* 환경변수를 주입합니다"
   type        = string
 }

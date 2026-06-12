@@ -6,7 +6,7 @@ data "aws_partition" "current" {}
 
 # ---------------------------------------------------------------------------
 # IRSA (IAM Role for Service Account) — OIDC 기반.
-# 클러스터 내 ServiceAccount가 AWS API를 호출할 IAM 역할을 발급한다.
+# 클러스터 내 ServiceAccount가 AWS API를 호출할 IAM 역할을 발급합니다.
 #   - aws-load-balancer-controller: ALB/Target Group 생성·관리
 #   - external-secrets:             Secrets Manager 읽기 + 환경 CMK decrypt
 # ---------------------------------------------------------------------------
@@ -93,15 +93,16 @@ resource "aws_iam_role_policy" "eso" {
     Version = "2012-10-17"
     Statement = [
       {
-        # 이 환경의 서비스 비밀만 (sb/{env}/*) — 환경 격리
+        # 이 환경의 서비스 비밀만 (sb/{env}/*) 읽도록 제한합니다 — 환경 격리.
         Sid      = "ReadServiceSecrets"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
         Resource = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.eso_secret_prefix}*"
       },
       {
-        # 이 환경의 SSM Parameter Store 값만 (/sb/{env}/*) — ParameterStore ClusterSecretStore용.
-        # 비밀 아닌 인프라 동적값 (엔드포인트·버킷명·계정 B 핸드오프 등) 주입 경로.
+        # 이 환경의 SSM Parameter Store 값만 (/sb/{env}/*) 읽도록 제한합니다 — ParameterStore
+        # ClusterSecretStore용. 비밀이 아닌 인프라 동적값 (엔드포인트·버킷명·계정 B 핸드오프 등)을
+        # 주입하는 경로입니다.
         Sid    = "ReadServiceParameters"
         Effect = "Allow"
         Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
@@ -109,8 +110,8 @@ resource "aws_iam_role_policy" "eso" {
         Resource = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/${trimsuffix(var.eso_secret_prefix, "/")}/*"
       },
       {
-        # 비밀/SecureString이 환경 CMK로 암호화돼 있어 Decrypt 필요. DescribeKey는 ESO/Secrets Manager의
-        # 비-happy-path (키 메타데이터 조회)에서 호출될 수 있어 함께 허용.
+        # 비밀/SecureString이 환경 CMK로 암호화돼 있어 Decrypt가 필요합니다. DescribeKey는
+        # ESO/Secrets Manager의 비-happy-path (키 메타데이터 조회)에서 호출될 수 있어 함께 허용합니다.
         Sid      = "DecryptWithEnvCmk"
         Effect   = "Allow"
         Action   = ["kms:Decrypt", "kms:DescribeKey"]

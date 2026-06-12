@@ -1,11 +1,11 @@
 # ---------------------------------------------------------------------------
-# 하이브리드 DNS — on-prem(pfSense) ↔ AWS 양방향 이름 해석.
-#   inbound  : on-prem이 EKS private API 엔드포인트 (*.eks.amazonaws.com)를 해석
-#   outbound : EKS 노드/파드가 on-prem 도메인 (harbor.corp.example 등)을 해석
-# 엔드포인트는 mgmt 서브넷에만 둔다 (on-prem 대면 tier 일관 유지).
+# 하이브리드 DNS — on-prem (pfSense)과 AWS 사이의 양방향 이름 해석을 담당합니다.
+#   inbound  : on-prem이 EKS private API 엔드포인트 (*.eks.amazonaws.com)를 해석합니다.
+#   outbound : EKS 노드/파드가 on-prem 도메인 (harbor.corp.example 등)을 해석합니다.
+# 엔드포인트는 on-prem 대면 tier를 일관되게 유지하기 위해 mgmt 서브넷에만 둡니다.
 # ---------------------------------------------------------------------------
 
-# inbound 엔드포인트 SG — on-prem에서 오는 DNS 질의 (53)만 허용
+# inbound 엔드포인트 SG — on-prem에서 오는 DNS 질의 (53)만 허용합니다.
 resource "aws_security_group" "inbound" {
   name        = "${var.name}-resolver-in-sg"
   description = "Route53 Resolver inbound endpoint: DNS 53 from on-prem"
@@ -37,7 +37,7 @@ resource "aws_security_group" "inbound" {
   tags = { Name = "${var.name}-resolver-in-sg" }
 }
 
-# outbound 엔드포인트 SG — on-prem DNS 서버로 나가는 53만 허용 (least-privilege)
+# outbound 엔드포인트 SG — on-prem DNS 서버로 나가는 53만 허용합니다 (least-privilege).
 resource "aws_security_group" "outbound" {
   name        = "${var.name}-resolver-out-sg"
   description = "Route53 Resolver outbound endpoint: DNS 53 to on-prem DNS"
@@ -92,7 +92,7 @@ resource "aws_route53_resolver_endpoint" "outbound" {
   tags = { Name = "${var.name}-outbound" }
 }
 
-# on-prem 도메인 → on-prem DNS 포워딩 룰 (+ VPC 연결)
+# on-prem 도메인을 on-prem DNS로 보내는 포워딩 룰입니다 (VPC 연결 포함).
 resource "aws_route53_resolver_rule" "forward" {
   for_each = toset(var.forward_domains)
 

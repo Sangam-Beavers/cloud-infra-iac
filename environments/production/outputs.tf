@@ -146,7 +146,7 @@ output "eks_cluster_ca" {
 }
 
 output "argocd_principal_arn" {
-  description = "ArgoCD 전용 IAM User ARN (연동 시) — access entry에 매핑됨"
+  description = "ArgoCD 전용 IAM User ARN (연동 시) — access entry에 매핑됩니다"
   value       = try(module.argocd_iam[0].principal_arn, "")
 }
 

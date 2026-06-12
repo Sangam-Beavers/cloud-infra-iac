@@ -26,7 +26,7 @@ output "origin_verify_ssm_param" {
   }
 }
 
-# 같은 스택에 통합된 edge 모듈이 CloudFront 헤더 주입에 직접 소비 (스택 출력으로는 재노출하지 않음)
+# 같은 스택에 통합된 edge 모듈이 CloudFront 헤더 주입에 직접 소비하며, 스택 출력으로는 재노출하지 않습니다.
 output "origin_verify_secret" {
   description = "origin-verify 비밀 값 (sensitive) — 동일 스택 edge 모듈 전용"
   value       = random_password.origin_verify.result

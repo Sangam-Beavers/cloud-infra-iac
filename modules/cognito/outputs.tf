@@ -24,6 +24,6 @@ output "hosted_ui_domain" {
 }
 
 output "member_role_arn" {
-  description = "member-service IRSA 역할 ARN (SA에 eks.amazonaws.com/role-arn으로 annotation)"
+  description = "member-service IRSA 역할 ARN (SA의 eks.amazonaws.com/role-arn 어노테이션 대상)"
   value       = aws_iam_role.member.arn
 }

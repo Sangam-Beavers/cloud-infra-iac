@@ -9,8 +9,8 @@ resource "aws_kms_key" "this" {
   deletion_window_in_days = var.deletion_window_in_days
   enable_key_rotation     = true # 연 1회 자동 키 로테이션
 
-  # 기본 정책 (root 전체) + CloudWatch Logs 서비스의 사용 위임
-  # (EKS 컨트롤플레인 로그 그룹을 이 CMK로 암호화하려면 키 정책 위임이 필수)
+  # 기본 정책 (root 전체)에 CloudWatch Logs 서비스의 사용 권한을 위임합니다.
+  # EKS 컨트롤플레인 로그 그룹을 이 CMK로 암호화하려면 키 정책 위임이 필수입니다.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -40,7 +40,7 @@ resource "aws_kms_key" "this" {
         }
       },
       {
-        # CloudTrail이 이 CMK로 S3 로그 파일을 암호화하도록 위임 (modules/cloudtrail이 trail의 kms_key_id로 사용)
+        # CloudTrail이 이 CMK로 S3 로그 파일을 암호화하도록 위임합니다 (modules/cloudtrail이 trail의 kms_key_id로 사용).
         Sid       = "AllowCloudTrail"
         Effect    = "Allow"
         Principal = { Service = "cloudtrail.amazonaws.com" }

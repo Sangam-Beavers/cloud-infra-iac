@@ -4,12 +4,12 @@ data "aws_partition" "current" {}
 
 locals {
   create = var.enabled ? 1 : 0
-  # 이름이 결정값이라 trail ARN을 미리 조립 — 버킷정책↔trail 순환참조 회피
+  # trail 이름이 결정값이므로 ARN을 미리 조립합니다. 버킷 정책과 trail 사이의 순환 참조를 피하기 위함입니다.
   trail_arn = "arn:${data.aws_partition.current.partition}:cloudtrail:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:trail/${var.name}"
 }
 
 # ---------------------------------------------------------------------------
-# 로그 버킷 — SSE-KMS(환경 CMK), 버전·public 차단·수명주기
+# 로그 버킷 — SSE-KMS (환경 CMK), 버전 관리·퍼블릭 차단·수명주기를 적용합니다.
 # ---------------------------------------------------------------------------
 resource "aws_s3_bucket" "trail" {
   count         = local.create
@@ -63,7 +63,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "trail" {
   }
 }
 
-# CloudTrail이 버킷에 쓰도록 허용 (서비스 프린시펄 + aws:SourceArn 조건)
+# CloudTrail이 버킷에 쓰도록 허용합니다 (서비스 프린시펄 + aws:SourceArn 조건으로 제한).
 resource "aws_s3_bucket_policy" "trail" {
   count  = local.create
   bucket = aws_s3_bucket.trail[0].id
@@ -96,7 +96,7 @@ resource "aws_s3_bucket_policy" "trail" {
 }
 
 # ---------------------------------------------------------------------------
-# 멀티리전 trail — 전역 서비스 이벤트 포함, 로그파일 무결성 검증, CMK 암호화
+# 멀티리전 trail — 전역 서비스 이벤트 포함, 로그 파일 무결성 검증, CMK 암호화를 적용합니다.
 # ---------------------------------------------------------------------------
 resource "aws_cloudtrail" "this" {
   count = local.create
@@ -109,7 +109,7 @@ resource "aws_cloudtrail" "this" {
   enable_log_file_validation    = true
   kms_key_id                    = var.kms_key_arn
 
-  # 버킷정책이 먼저 있어야 trail 생성 시 쓰기검증 통과
+  # 버킷 정책이 먼저 존재해야 trail 생성 시 쓰기 검증을 통과합니다.
   depends_on = [aws_s3_bucket_policy.trail]
 
   tags = { Name = var.name }

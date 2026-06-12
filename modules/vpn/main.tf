@@ -4,7 +4,7 @@ data "aws_caller_identity" "current" {}
 
 data "aws_partition" "current" {}
 
-# 검증된 구성과 동일한 Ubuntu (apt 기반 user_data — AL2023엔 frr 패키지 없음)
+# 검증된 구성과 동일한 Ubuntu를 사용합니다. user_data가 apt 기반이라 AL2023은 쓸 수 없습니다 (AL2023에는 frr 패키지가 없습니다).
 data "aws_ami" "ubuntu_arm" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
@@ -21,7 +21,7 @@ data "aws_ami" "ubuntu_arm" {
 }
 
 # ---------------------------------------------------------------------------
-# EIP — 고정 공인 IP (pfSense가 이 주소로 연결). ASG 재기동 시 user_data가 재연결
+# EIP — 고정 공인 IP (pfSense가 이 주소로 연결합니다). ASG 재기동 시 user_data가 다시 연결합니다.
 # ---------------------------------------------------------------------------
 
 resource "aws_eip" "this" {
@@ -33,12 +33,12 @@ resource "aws_eip" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# SG — WireGuard UDP만 인바운드 (SSH 없음, 관리는 SSM)
+# SG — WireGuard UDP만 인바운드로 허용합니다 (SSH는 열지 않고 관리는 SSM으로 합니다).
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "this" {
   name = "${var.name}-sg"
-  # 주의: SG description은 ASCII만 허용 (한글 불가)
+  # SG description은 ASCII만 허용하므로 한글을 쓸 수 없습니다.
   description = "WireGuard VPN router: UDP tunnel ports only"
   vpc_id      = var.vpc_id
 
@@ -49,11 +49,11 @@ resource "aws_security_group" "this" {
       from_port   = ingress.value.listen_port
       to_port     = ingress.value.listen_port
       protocol    = "udp"
-      cidr_blocks = ["0.0.0.0/0"] # 온프렘 공인 IP 유동 — WG는 무키 패킷에 무응답이라 노출 위험 낮음
+      cidr_blocks = ["0.0.0.0/0"] # 온프렘 공인 IP가 유동이라 전체를 열지만, WG는 유효 키 없는 패킷에 응답하지 않아 노출 위험이 낮습니다.
     }
   }
 
-  # forward 트래픽 ingress — 흐름별 최소 포트만 (미허용 시 ENI에서 drop → AWS→on-prem 막힘).
+  # forward 트래픽 ingress — 흐름별로 최소 포트만 엽니다. 허용하지 않으면 ENI에서 drop되어 AWS→on-prem 경로가 막힙니다.
   # private (EKS 노드) → Harbor 이미지 pull (TCP 443)
   dynamic "ingress" {
     for_each = length(var.forward_harbor_cidrs) > 0 ? [1] : []
@@ -67,7 +67,7 @@ resource "aws_security_group" "this" {
   }
 
   # mgmt (resolver outbound 엔드포인트) → on-prem DNS (UDP 53 + TCP 53)
-  # TCP는 512B 초과 응답·DNSSEC truncate 재시도용 — resolver outbound SG와 대칭.
+  # TCP는 512B 초과 응답과 DNSSEC truncate 재시도를 위한 것으로, resolver outbound SG와 대칭을 이룹니다.
   dynamic "ingress" {
     for_each = length(var.forward_dns_cidrs) > 0 ? ["udp", "tcp"] : []
     content {
@@ -121,7 +121,7 @@ resource "aws_iam_role_policy" "self_healing" {
     Version = "2012-10-17"
     Statement = [
       {
-        # 가장 위험한 액션 (라우트 변경 = 트래픽 하이재킹)은 우리 return 라우트 테이블로만 제한
+        # 가장 위험한 액션 (라우트 변경은 트래픽 하이재킹으로 이어질 수 있습니다)은 우리 return 라우트 테이블로만 제한합니다.
         Sid    = "ManageReturnRoutes"
         Effect = "Allow"
         Action = ["ec2:ReplaceRoute", "ec2:CreateRoute"]
@@ -131,8 +131,8 @@ resource "aws_iam_role_policy" "self_healing" {
         ]
       },
       {
-        # EIP 재연결·src/dst check 해제 — EC2가 리소스 레벨 제약을 충분히 지원하지 않아
-        # Resource=*이나, 최소한 배포 리전으로 한정
+        # EIP 재연결과 src/dst check 해제용입니다. EC2가 리소스 레벨 제약을 충분히 지원하지 않아
+        # Resource=*로 두되, 최소한 배포 리전으로 한정합니다.
         Sid      = "SelfHealingEipEni"
         Effect   = "Allow"
         Action   = ["ec2:AssociateAddress", "ec2:ModifyNetworkInterfaceAttribute"]
@@ -169,7 +169,7 @@ resource "aws_iam_instance_profile" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# Launch Template + ASG (min=max=desired=1) — AZ 장애 시 자동 재기동 + 셀프힐링
+# Launch Template + ASG (min=max=desired=1) — AZ 장애 시 자동으로 재기동하고 셀프힐링합니다.
 # ---------------------------------------------------------------------------
 
 resource "aws_launch_template" "this" {

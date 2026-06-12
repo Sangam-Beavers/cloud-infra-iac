@@ -5,15 +5,15 @@ data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
 # ---------------------------------------------------------------------------
-# 인터페이스 엔드포인트 — mgmt는 NAT 없는 격리 구역이므로 필수.
+# 인터페이스 엔드포인트 — mgmt는 NAT 없는 격리 구역이므로 필수입니다.
 #   ssm/ssmmessages/ec2messages: Session Manager 접속용
 #   secretsmanager: DB 부트스트랩 등 점프 호스트에서의 비밀 조회/생성용
-# ASG가 어느 AZ에 점프 호스트를 띄워도 닿도록 전체 mgmt AZ에 ENI 분산.
+# ASG가 어느 AZ에 점프 호스트를 띄워도 닿도록 전체 mgmt AZ에 ENI를 분산합니다.
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "endpoints" {
   name = "${var.name}-vpce-sg"
-  # 주의: SG description은 ASCII만 허용 (한글 불가)
+  # 주의: SG description은 ASCII만 허용하므로 한글은 사용할 수 없습니다.
   description = "SSM interface endpoints: allow 443 from VPC"
   vpc_id      = var.vpc_id
 
@@ -74,7 +74,7 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# bootstrap-db.sh 실행에 필요한 최소 권한
+# bootstrap-db.sh 실행에 필요한 최소 권한입니다.
 resource "aws_iam_role_policy" "bootstrap" {
   name = "${var.name}-bootstrap"
   role = aws_iam_role.this.id
@@ -86,7 +86,7 @@ resource "aws_iam_role_policy" "bootstrap" {
         Sid    = "ReadMasterAndServiceSecrets"
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-        # rds!* = RDS 관리형 마스터 비밀, sb/* = 서비스 비밀 — 그 외 비밀은 접근 불가
+        # rds!* 는 RDS 관리형 마스터 비밀, sb/* 는 서비스 비밀이며 그 외 비밀에는 접근할 수 없습니다.
         Resource = [
           "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:rds!*",
           "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_prefix}*",
@@ -120,7 +120,7 @@ resource "aws_iam_instance_profile" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# 시작 템플릿 + ASG (min=max=desired=1) — AZ 장애 시 다른 AZ에 자동 재기동
+# 시작 템플릿 + ASG (min=max=desired=1) — AZ 장애 시 다른 AZ에 자동 재기동됩니다.
 # ---------------------------------------------------------------------------
 
 data "aws_ssm_parameter" "al2023_arm" {
@@ -138,9 +138,9 @@ resource "aws_launch_template" "this" {
 
   vpc_security_group_ids = [aws_security_group.jump.id]
 
-  # 관리 도구 설치 (mysql/redis 클라이언트, jq)
+  # 관리 도구 설치 (mysql/redis 클라이언트, jq).
   # 격리 서브넷의 dnf는 S3 게이트웨이 엔드포인트가 준비된 후에만 동작하므로
-  # 네트워크 준비 지연에 대비해 재시도 루프로 감싼다
+  # 네트워크 준비 지연에 대비해 재시도 루프로 감쌌습니다.
   user_data = base64encode(<<-EOT
     #!/bin/bash
     for i in $(seq 1 30); do
@@ -185,7 +185,7 @@ resource "aws_launch_template" "this" {
 
 resource "aws_security_group" "jump" {
   name = "${var.name}-sg"
-  # 인바운드 불필요 — SSM은 아웃바운드 443으로만 동작 (SSH 미사용)
+  # SSM은 아웃바운드 443으로만 동작하므로 인바운드가 필요 없습니다 (SSH 미사용).
   description = "Jump host: no ingress, egress only (SSM outbound model)"
   vpc_id      = var.vpc_id
 

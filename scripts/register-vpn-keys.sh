@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# 로컬 secrets/wg.{env}.env의 WireGuard 키를 SSM Parameter Store에 등록한다.
+# 로컬 secrets/wg.{env}.env의 WireGuard 키를 SSM Parameter Store에 등록합니다.
 #   /sb/{env}/vpn/ec2-private-key   (SecureString, 환경 CMK)
 #   /sb/{env}/vpn/ec2-public-key    (String — pfSense 설정 참고용)
 #   /sb/{env}/vpn/onprem-active-pub  /onprem-standby-pub (String)
 #
-# VPN 라우터 부팅 전에 반드시 실행할 것 (user_data가 이 파라미터를 fetch).
-# 멱등: --overwrite로 재실행 시 값 갱신.
+# user_data가 부팅 시 이 파라미터를 fetch하므로 VPN 라우터 부팅 전에 반드시 실행해야 합니다.
+# 멱등이라 --overwrite로 재실행하면 값을 갱신합니다.
 #
 # 사용법: ./register-vpn-keys.sh <prod|stage> [profile]
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ for v in "WG_${P}_EC2_PRV" "WG_${P}_EC2_PUB" "WG_${P}_ONPREM_ACT_PUB" "WG_${P}_O
   [ -n "${!v:-}" ] || { echo "ERROR: $FILE에 $v 누락"; exit 1; }
 done
 
-# CMK는 alias로 조회 — terraform output에 의존하지 않아 apply 완료 직후/병렬에도 등록 가능
+# CMK는 alias로 조회합니다. terraform output에 의존하지 않으므로 apply 완료 직후나 병렬 실행 중에도 등록할 수 있습니다.
 KMS=$(aws kms describe-key --key-id "alias/sb-${ENV}-cmk" \
   --query KeyMetadata.Arn --output text --profile "$PROFILE" --region $REGION)
 PREFIX="/sb/${ENV}/vpn"

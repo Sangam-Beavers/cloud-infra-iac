@@ -2,54 +2,54 @@
 # staging terraform.tfvars 템플릿 (이 .example 파일이 커밋되는 버전)
 # -----------------------------------------------------------------------------
 # 사용법:
-#   1) 이 파일을 같은 디렉토리의 terraform.tfvars 로 복사한다 (terraform.tfvars는 gitignore됨).
+#   1) 이 파일을 같은 디렉토리의 terraform.tfvars 로 복사합니다 (terraform.tfvars는 gitignore됩니다).
 #        cp terraform.tfvars.example terraform.tfvars
-#   2) 아래 <...> 플레이스홀더를 실제 결정값으로 채운다. 채우는 기준은 각 항목 주석 참고.
-#   3) `terraform plan`으로 in-place/replace 여부를 확인한 뒤 apply.
+#   2) 아래 <...> 플레이스홀더를 실제 결정값으로 채웁니다. 채우는 기준은 각 항목 주석을 참고하세요.
+#   3) `terraform plan`으로 in-place/replace 여부를 확인한 뒤 apply합니다.
 # 주의:
-#   - 여기 값은 "예시/플레이스홀더"다. 실측값 (특히 network CIDR, VPN 토폴로지)은
-#     커밋된 채로 두지 말고 terraform.tfvars (gitignore)에만 둔다.
-#   - staging 기조는 비용 절감 (prod와 동일 구조, 규모만 축소). 보통 2 AZ + single NAT + 작은 노드.
+#   - 여기 값은 "예시·플레이스홀더"입니다. 실측값 (특히 network CIDR, VPN 토폴로지) 은
+#     커밋된 채로 두지 말고 terraform.tfvars (gitignore) 에만 둡니다.
+#   - staging 기조는 비용 절감입니다 (prod와 동일 구조, 규모만 축소). 보통 2 AZ + single NAT + 작은 노드로 구성합니다.
 # =============================================================================
 
-project     = "global-bridge"  # 그대로 둠 (태그·네이밍 접두사).
-environment = "staging"        # 그대로 둠 (application 스택 ARN 조회 키).
-aws_region = "ap-northeast-2" # 그대로 둠 (서울).
-# aws_profile / state_bucket은 여기 두지 않는다 — Makefile의 PROFILE/STATE_BUCKET이 주입 (계정 전환은 make 한 곳).
+project     = "global-bridge"  # 그대로 둡니다 (태그·네이밍 접두사).
+environment = "staging"        # 그대로 둡니다 (application 스택 ARN 조회 키).
+aws_region = "ap-northeast-2" # 그대로 둡니다 (서울).
+# aws_profile / state_bucket은 여기 두지 않습니다 — Makefile의 PROFILE/STATE_BUCKET이 주입합니다 (계정 전환은 make 한 곳에서 관리합니다).
 
 # --- 자원 사양/결정값 ---
 # nat_gateway_strategy: none | single (비용 절감, staging 권장) | per_az (HA).
-#   single에서 NAT AZ 장애 시 vpc_config에 single_nat_az = "<public AZ 접미사>"(예: "c")를 추가하고
-#   apply하면 그 AZ로 재배치 (복구 ~5분). single_nat_az는 network.public에 존재하는 AZ여야 함 (모듈 validation).
+#   single에서 NAT AZ 장애 시 vpc_config에 single_nat_az = "<public AZ 접미사>" (예: "c") 를 추가하고
+#   apply하면 그 AZ로 재배치됩니다 (복구 ~5분). single_nat_az는 network.public에 존재하는 AZ여야 합니다 (모듈 validation).
 vpc_config      = { nat_gateway_strategy = "<none|single|per_az>" }
-# deletion_window_in_days: KMS 삭제 예약 대기일 (7~30). staging은 빠른 정리 위해 7 권장 (예시 그대로).
+# deletion_window_in_days: KMS 삭제 예약 대기일 (7~30). staging은 빠른 정리를 위해 7을 권장합니다 (예시 그대로).
 kms_config      = { deletion_window_in_days = 7 }
-# node_type: 캐시 노드 타입 (t4g=ARM, staging은 micro로 절감). node_count 2면 Multi-AZ failover 유지.
-#   snapshot_retention (선택, 기본 1)은 staging이면 생략 (기본 1)으로 두는 편.
+# node_type: 캐시 노드 타입 (t4g=ARM, staging은 micro로 절감). node_count가 2면 Multi-AZ failover를 유지합니다.
+#   snapshot_retention (선택, 기본 1) 은 staging이면 생략해 기본 1로 두는 편입니다.
 redis_config    = { node_type = "<cache.t4g.micro|...>", node_count = 2 }
-# 점프 호스트 (관리 통로) 인스턴스 타입. t4g.small이면 충분 (무상태).
+# 점프 호스트 (관리 통로) 인스턴스 타입입니다. 무상태이므로 t4g.small이면 충분합니다.
 jumphost_config = { instance_type = "t4g.small" }
-# EKS 노드: instance_types가 ARM (t4g/m7g)이면 컨테이너 이미지 arm64 필수 (모듈 ami_type 기본 ARM_64).
-#   x86으로 가려면 모듈 ami_type도 함께 변경. staging은 t4g.medium + 작은 desired/min/max로 절감.
+# EKS 노드: instance_types가 ARM (t4g/m7g) 이면 컨테이너 이미지를 arm64로 빌드해야 합니다 (모듈 ami_type 기본 ARM_64).
+#   x86으로 가려면 모듈 ami_type도 함께 변경합니다. staging은 t4g.medium에 작은 desired/min/max로 절감합니다.
 eks_config      = { instance_types = ["<t4g.medium|m7g.large|...>"], desired_size = 2, min_size = 1, max_size = 6, endpoint_public_access = false }
-# Aurora: clusters = 클러스터명 → { databases = 논리 DB (서비스) 목록 + 클러스터별 오버라이드 } (보통 core/content 2개로 blast radius 분리).
-#   공통 instance_count 1=writer만, 2=writer+reader1. serverless_max_acu (기본 4)/backup_retention_period (기본 1)는
-#   staging이면 생략 (기본값)으로 두어 절감. 클러스터별 instance_count·min_acu·max_acu로 공통값을 덮을 수 있다.
-#   예시는 단일 클러스터만 — 실제론 두 개로 채울 것.
+# Aurora: clusters = 클러스터명 → { databases = 논리 DB (서비스) 목록 + 클러스터별 오버라이드 } 입니다 (보통 core/content 2개로 blast radius를 분리).
+#   공통 instance_count는 1=writer만, 2=writer+reader1입니다. serverless_max_acu (기본 4) 와 backup_retention_period (기본 1) 는
+#   staging이면 생략해 기본값으로 두어 절감합니다. 클러스터별 instance_count·min_acu·max_acu로 공통값을 덮을 수 있습니다.
+#   예시는 단일 클러스터만 두지만 실제로는 두 개로 채웁니다.
 aurora_config = {
   clusters = {
     "<cluster>" = { databases = ["<svc1>", "<svc2>"] }
-    # 클러스터별 오버라이드 (선택): min_acu=0이면 유휴 시 auto-pause (컴퓨트 ~$0).
+    # 클러스터별 오버라이드 (선택): min_acu=0이면 유휴 시 auto-pause됩니다 (컴퓨트 ~$0).
     # 예) admin = { databases = ["admin", "app_admin"], instance_count = 1, min_acu = 0, max_acu = 2 }  # 단일 writer + auto-pause
   }
   instance_count = 2 # 클러스터 공통 기본
   # 운영 전환 시: deletion_protection = true, skip_final_snapshot = false (기본은 false / true)
 }
 
-# API Gateway origin: 백엔드 서비스를 내부 ALB 경로로 매핑 (백엔드는 /api/v1 네이티브).
-#   path_patterns = ALB 경로 룰 리스트 (CloudFront가 /api/* 를 그대로 전달 — strip 없음). 서비스당 다중 가능.
-#   port = Service targetPort, priority = 리스너 룰 우선순위 (서비스별 고유, 낮을수록 먼저).
-#   health_check_path = SpringBoot actuator. waf_rate_limit (선택, 기본 2000) 은 IP당 5분 윈도우 요청 상한.
+# API Gateway origin: 백엔드 서비스를 내부 ALB 경로로 매핑합니다 (백엔드는 /api/v1 네이티브).
+#   path_patterns = ALB 경로 룰 리스트입니다 (CloudFront가 /api/* 를 그대로 전달하며 strip하지 않습니다). 서비스당 다중 지정이 가능합니다.
+#   port = Service targetPort, priority = 리스너 룰 우선순위입니다 (서비스별 고유, 낮을수록 먼저 평가).
+#   health_check_path = SpringBoot actuator입니다. waf_rate_limit (선택, 기본 2000) 은 IP당 5분 윈도우 요청 상한입니다.
 api_gateway_config = {
   waf_rate_limit = 2000
   services = {
@@ -60,13 +60,13 @@ api_gateway_config = {
   }
 }
 
-# 엣지: stage는 기본 *.cloudfront.net (커스텀 도메인은 prod 전용 — secrets/domain.env).
+# 엣지: stage는 기본 *.cloudfront.net을 씁니다 (커스텀 도메인은 prod 전용 — secrets/domain.env).
 
-# --- 네트워크 설계 (내부 IP 교통 정리표 기준으로 채울 것) ---
-# 내부 IP 교통 정리표를 그대로 옮긴다. vpc_cidr (/16) 안에 4계층 서브넷이 겹치지 않게.
+# --- 네트워크 설계 (내부 IP 교통 정리표 기준으로 채웁니다) ---
+# 내부 IP 교통 정리표를 그대로 옮깁니다. vpc_cidr (/16) 안에서 4계층 서브넷이 겹치지 않게 합니다.
 #   public=인터넷 향, private=앱 (EKS), db=격리 DB/캐시, mgmt=관리/VPN 광고.
-#   staging은 비용 절감 위해 2개 AZ (a/c)면 충분. prod와 다른 VPC 대역을 써서 VPN/라우팅 충돌을 피할 것.
-#   db/private 값은 Aurora/Valkey allowed_cidrs로, mgmt는 VPN BGP 광고 대역으로도 쓰인다.
+#   staging은 비용 절감을 위해 2개 AZ (a/c) 면 충분합니다. prod와 다른 VPC 대역을 써서 VPN·라우팅 충돌을 피합니다.
+#   db·private 값은 Aurora/Valkey allowed_cidrs로, mgmt는 VPN BGP 광고 대역으로도 쓰입니다.
 network = {
   vpc_cidr = "<VPC_CIDR>" # 예: 10.0.0.0/16
   public   = { a = "<CIDR>", c = "<CIDR>" }
@@ -75,13 +75,13 @@ network = {
   mgmt     = { a = "<CIDR>", c = "<CIDR>" }
 }
 
-# --- VPN 토폴로지 (온프렘 pfSense 설정과 합 맞춤) ---
-# 온프렘 pfSense와 양쪽 합이 맞아야 터널이 붙는다. 채울 때 반드시 온프렘 담당과 값을 맞출 것:
-#   - address (우리 EC2 측 터널 IP/28) 와 peer_ip (pfSense 측 터널 IP)는 같은 /28 안의 짝.
-#   - listen_port (WG UDP)는 양쪽 동일. active/standby가 다른 포트 (51820/51821).
-#   - peer_pubkey_ssm 은 온프렘 공개키가 저장된 SSM 파라미터 "이름"(접두사 /sb/stage/vpn 하위).
-#   - 우리 측 WG 키는 `make vpn-stage`로 SSM에 먼저 등록한 뒤 apply (user_data가 부팅 시 fetch).
-#   - prod와 동시에 같은 온프렘에 붙는다면 prod와 겹치지 않는 터널 IP/28을 고를 것.
+# --- VPN 토폴로지 (온프렘 pfSense 설정과 합을 맞춥니다) ---
+# 온프렘 pfSense와 양쪽 합이 맞아야 터널이 붙습니다. 채울 때는 반드시 온프렘 담당과 값을 맞춥니다:
+#   - address (우리 EC2 측 터널 IP/28) 와 peer_ip (pfSense 측 터널 IP) 는 같은 /28 안의 짝입니다.
+#   - listen_port (WG UDP) 는 양쪽이 동일하며, active/standby가 서로 다른 포트 (51820/51821) 를 씁니다.
+#   - peer_pubkey_ssm 은 온프렘 공개키가 저장된 SSM 파라미터 "이름"입니다 (접두사 /sb/stage/vpn 하위).
+#   - 우리 측 WG 키는 `make vpn-stage`로 SSM에 먼저 등록한 뒤 apply합니다 (user_data가 부팅 시 fetch).
+#   - prod와 동시에 같은 온프렘에 붙는다면 prod와 겹치지 않는 터널 IP/28을 고릅니다.
 vpn_tunnels = {
   wg0active = {
     address         = "<EC2_TUNNEL_IP>/28" # 예: 10.255.0.1/28
@@ -96,20 +96,20 @@ vpn_tunnels = {
     peer_pubkey_ssm = "onprem-standby-pub"
   }
 }
-# 관례: wg0active의 EC2 측 터널 IP를 그대로 router-id로 (라우터 식별자, 충돌 주의).
+# 관례상 wg0active의 EC2 측 터널 IP를 그대로 router-id로 씁니다 (라우터 식별자이므로 충돌에 주의).
 vpn_bgp_router_id = "<WG0ACTIVE_EC2_TUNNEL_IP>"
-# 온프렘이 광고하는 사내망 대역 (들). WG AllowedIPs + mgmt return 라우트 대상. 온프렘 실제 대역과 일치시킬 것.
+# 온프렘이 광고하는 사내망 대역 (들) 입니다. WG AllowedIPs와 mgmt return 라우트 대상이며, 온프렘 실제 대역과 일치시킵니다.
 vpn_onprem_cidrs   = ["<ONPREM_CIDR_1>", "<ONPREM_CIDR_2>"]
-# pfSense NAT source IP. 비대칭 라우팅 방지 policy routing 대상. 온프렘 pfSense NAT 설정값과 동일하게 채울 것.
+# pfSense NAT source IP입니다. 비대칭 라우팅을 막는 policy routing 대상이며, 온프렘 pfSense NAT 설정값과 동일하게 채웁니다.
 vpn_pfsense_nat_ip = "<PFSENSE_NAT_IP>"
 
-# --- 온프렘 Harbor/ArgoCD 연동 (선택) — prod와 동일 구조. enabled=true로 켜면 생성 ---
-# 대칭 은닉: private/db는 on-prem에 광고/노출 0. 사전 준비는 prod example 주석 참고.
+# --- 온프렘 Harbor/ArgoCD 연동 (선택) — prod와 동일 구조이며 enabled=true로 켜면 생성됩니다 ---
+# 대칭 은닉을 적용합니다: private·db는 on-prem에 광고·노출이 전혀 없습니다. 사전 준비는 prod example 주석을 참고하세요.
 onprem_integration = {
   enabled               = false
   harbor_destinations   = ["<HARBOR_IP>/32"]
   argocd_source_cidrs   = ["<PFSENSE_NAT_IP>/32"]
-  argocd_namespaces     = ["<APP_NAMESPACE>"] # 배포 대상 — install-k8s-stack이 사전 생성, access entry도 이 범위로 한정
+  argocd_namespaces     = ["<APP_NAMESPACE>"] # 배포 대상입니다. install-k8s-stack이 사전 생성하며 access entry도 이 범위로 한정합니다.
   dns_resolver_ips      = ["<ONPREM_DNS_IP>"]
   dns_forward_domains   = ["<ONPREM_DOMAIN>"]
   inbound_allowed_cidrs = ["<ONPREM_CIDR>"]

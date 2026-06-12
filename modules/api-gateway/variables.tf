@@ -14,7 +14,7 @@ variable "subnet_ids" {
 }
 
 variable "kms_key_arn" {
-  description = "origin-verify 비밀 (SSM SecureString) 과 액세스 로그 그룹 암호화에 쓸 환경 CMK ARN"
+  description = "origin-verify 비밀 (SSM SecureString)과 액세스 로그 그룹 암호화에 쓸 환경 CMK ARN"
   type        = string
 }
 
@@ -24,7 +24,7 @@ variable "ssm_prefix" {
 }
 
 variable "tgb_ssm_prefix" {
-  description = "서비스별 {target group ARN, 컨테이너 포트}와 ALB SG를 게시할 SSM 접두사 (예: /sb/stage/tgb). install-k8s-stack의 tgb phase가 여기서 읽어 TargetGroupBinding을 만든다. 빈 값이면 게시 안 함"
+  description = "서비스별 {target group ARN, 컨테이너 포트}와 ALB SG를 게시할 SSM 접두사 (예: /sb/stage/tgb). install-k8s-stack의 tgb phase가 여기서 읽어 TargetGroupBinding을 만듭니다. 빈 값이면 게시하지 않습니다."
   type        = string
   default     = ""
 }
@@ -53,7 +53,7 @@ variable "waf_rate_limit" {
 }
 
 variable "services" {
-  description = "백엔드 서비스 → 내부 ALB 경로/포트/헬스체크/우선순위 매핑. 각 서비스는 TargetGroupBinding으로 파드를 등록한다"
+  description = "백엔드 서비스 → 내부 ALB 경로/포트/헬스체크/우선순위 매핑. 각 서비스는 TargetGroupBinding으로 파드를 등록합니다."
   type = map(object({
     path_patterns     = list(string)                 # ALB 경로 룰 (예: ["/api/v1/community/*"]). 서비스당 다중 가능, ALB는 룰당 최대 5개
     port              = number                       # 컨테이너/Service targetPort

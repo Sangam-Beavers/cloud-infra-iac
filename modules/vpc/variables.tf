@@ -45,7 +45,7 @@ variable "private_subnet_extra_tags" {
 }
 
 variable "nat_gateway_strategy" {
-  description = "private 서브넷 아웃바운드용 NAT 전략: none (없음) | single(1개) | per_az(AZ별 1개)"
+  description = "private 서브넷 아웃바운드용 NAT 전략: none (없음) | single (1개) | per_az (AZ별 1개)"
   type        = string
   default     = "none"
 
@@ -56,7 +56,7 @@ variable "nat_gateway_strategy" {
 }
 
 variable "single_nat_az" {
-  description = "single 전략에서 NAT를 배치할 AZ 접미사 (기본: public AZ 중 첫 번째). 해당 AZ 장애 시 이 값을 다른 AZ로 바꿔 apply하면 NAT가 재배치됨 (복구 약 5분). 반드시 public_subnets에 존재하는 AZ여야 함"
+  description = "single 전략에서 NAT를 배치할 AZ 접미사 (기본: public AZ 중 첫 번째). 해당 AZ 장애 시 이 값을 다른 AZ로 바꿔 apply하면 NAT가 재배치됩니다 (복구 약 5분). 반드시 public_subnets에 존재하는 AZ여야 합니다"
   type        = string
   default     = null
 
@@ -67,7 +67,7 @@ variable "single_nat_az" {
 }
 
 variable "enable_flow_logs" {
-  description = "VPC Flow Logs 활성화 여부 (count 기준 — 정적 값이어야 plan이 개수를 정할 수 있음)"
+  description = "VPC Flow Logs 활성화 여부 (count 기준 — 정적 값이어야 plan이 개수를 정할 수 있습니다)"
   type        = bool
   default     = false
 }

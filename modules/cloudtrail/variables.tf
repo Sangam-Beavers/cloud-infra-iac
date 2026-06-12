@@ -4,7 +4,7 @@ variable "name" {
 }
 
 variable "kms_key_arn" {
-  description = "로그 파일 SSE-KMS 암호화에 쓸 환경 CMK ARN (키 정책에 cloudtrail.amazonaws.com 위임 필요)"
+  description = "로그 파일 SSE-KMS 암호화에 쓸 환경 CMK ARN (키 정책에 cloudtrail.amazonaws.com 위임이 필요합니다)"
   type        = string
 }
 
@@ -15,7 +15,7 @@ variable "log_retention_days" {
 }
 
 variable "enabled" {
-  description = "false면 trail·버킷 미생성 (org/ControlTower 트레일이 이미 있는 계정)"
+  description = "false면 trail·버킷을 생성하지 않습니다 (org/ControlTower 트레일이 이미 있는 계정)"
   type        = bool
   default     = true
 }

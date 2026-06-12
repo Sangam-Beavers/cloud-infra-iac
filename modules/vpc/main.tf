@@ -34,8 +34,8 @@ resource "aws_internet_gateway" "this" {
 
 # ---------------------------------------------------------------------------
 # VPC Flow Logs → CloudWatch (CMK 암호화) — 네트워크 트래픽 감사/포렌식
-# enable_flow_logs (정적 bool)로 켜고 끔. count는 apply 시점에야 정해지는
-# kms_key_arn에 의존하면 안 되므로 (plan이 개수 추론 불가) 별도 bool로 분리한다.
+# enable_flow_logs (정적 bool)로 켜고 끕니다. count가 apply 시점에야 정해지는
+# kms_key_arn에 의존하면 plan이 개수를 추론할 수 없으므로 별도 bool로 분리합니다.
 # ---------------------------------------------------------------------------
 
 locals {
@@ -52,7 +52,7 @@ resource "aws_cloudwatch_log_group" "flow" {
   lifecycle {
     precondition {
       condition     = var.flow_log_kms_key_arn != null
-      error_message = "enable_flow_logs면 flow_log_kms_key_arn (CMK)을 지정해야 한다 (미지정 시 CMK 암호화 미적용)."
+      error_message = "enable_flow_logs면 flow_log_kms_key_arn (CMK)을 지정해야 합니다 (미지정 시 CMK 암호화 미적용)."
     }
   }
 
@@ -194,14 +194,15 @@ resource "aws_nat_gateway" "this" {
     Name = "${var.name}-nat-${each.key}"
   }
 
-  # NAT 게이트웨이는 IGW가 VPC에 연결된 뒤에만 생성 가능하나, 코드상
-  # 참조 (EIP/subnet)에는 IGW가 없어 TF가 순서를 추론 못 함 — 명시 필요
+  # NAT 게이트웨이는 IGW가 VPC에 연결된 뒤에만 생성할 수 있지만, 코드상
+  # 참조 (EIP/subnet)에는 IGW가 없어 Terraform이 순서를 추론하지 못하므로 명시합니다.
   depends_on = [aws_internet_gateway.this]
 }
 
 # ---------------------------------------------------------------------------
-# S3 게이트웨이 엔드포인트 (무료) — private/db/mgmt 서브넷에서 S3 직접 접근
-# AL2023 dnf 리포·ECR 이미지 레이어가 S3 기반: 격리 구역 패키지 설치 + NAT 비용 절감
+# S3 게이트웨이 엔드포인트 (무료) — private/db/mgmt 서브넷에서 S3에 직접 접근
+# AL2023 dnf 리포·ECR 이미지 레이어가 S3 기반이므로, 격리 구역에서도 패키지를
+# 설치할 수 있고 NAT 트래픽 비용도 절감합니다.
 # ---------------------------------------------------------------------------
 
 resource "aws_vpc_endpoint" "s3" {
@@ -270,8 +271,8 @@ resource "aws_route" "private_nat" {
   )
 
   lifecycle {
-    # per_az에서 private AZ에 대응하는 public (NAT) AZ가 없으면 다른 AZ NAT로
-    # 조용히 fallback되어 격리가 깨진다 — 명시적으로 실패시킴
+    # per_az에서 private AZ에 대응하는 public (NAT) AZ가 없으면 다른 AZ의 NAT로
+    # 조용히 fallback되어 AZ 격리가 깨지므로, 여기서 명시적으로 실패시킵니다.
     precondition {
       condition     = var.nat_gateway_strategy != "per_az" || contains(local.public_azs, each.key)
       error_message = "per_az 전략에서는 private 서브넷 AZ '${each.key}'에 대응하는 public 서브넷 (NAT)이 필요합니다."
@@ -307,7 +308,7 @@ resource "aws_route_table_association" "db" {
 
 # ---------------------------------------------------------------------------
 # 라우팅: mgmt — db와 동일한 격리 구역 (인터넷 라우트 없음)
-# 점프 호스트는 SSM 인터페이스 엔드포인트로 접속 — 엔드포인트는 라우트가 필요 없음
+# 점프 호스트는 SSM 인터페이스 엔드포인트로 접속하므로 별도 라우트가 필요 없습니다.
 # ---------------------------------------------------------------------------
 
 resource "aws_route_table" "mgmt" {

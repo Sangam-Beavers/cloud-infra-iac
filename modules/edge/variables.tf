@@ -16,7 +16,7 @@ variable "default_root_object" {
 }
 
 variable "spa_fallback" {
-  description = "SPA 라우팅: S3에 객체가 없어 생기는 403/404를 /index.html 200으로 치환 (클라이언트 라우터가 경로 처리)"
+  description = "SPA 라우팅: viewer-request 함수로 확장자 없는 경로를 /index.html에 매핑 (S3 behavior 한정 — /api/*의 백엔드 403/404는 그대로 전달)"
   type        = bool
   default     = true
 }

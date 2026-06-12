@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # ElastiCache (Valkey) 복제 그룹에 AUTH 토큰을 설정하고
-# Secrets Manager (sb/{env}/redis/auth)에 저장한다.
+# Secrets Manager (sb/{env}/redis/auth)에 저장합니다.
 #
-# AWS API만 사용하므로 로컬에서 실행 가능 (DB 부트스트랩과 달리 VPC 접근 불필요).
-# ROTATE → SET 2단계: 무중단으로 토큰을 추가한 뒤 새 토큰만 허용하도록 고정.
+# AWS API만 사용하므로 로컬에서 실행할 수 있습니다 (DB 부트스트랩과 달리 VPC 접근 불필요).
+# ROTATE → SET 2단계로 동작합니다. 무중단으로 토큰을 추가한 뒤 새 토큰만 허용하도록 고정합니다.
 #
 # 사용법: ./bootstrap-redis.sh <env> <replication_group_id> [profile]
 # 예시:   ./bootstrap-redis.sh prod sb-prod-redis
-# KMS_KEY_ARN 환경변수를 주면 생성되는 비밀을 해당 CMK로 암호화한다.
+# KMS_KEY_ARN 환경변수를 주면 생성되는 비밀을 해당 CMK로 암호화합니다.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -25,7 +25,7 @@ SECRET_NAME="sb/${ENV}/redis/auth"
 TOKEN=$(aws secretsmanager get-random-password --exclude-punctuation \
   --password-length 48 --query RandomPassword --output text --profile "$PROFILE")
 
-# 토큰을 CLI 인자로 주면 ps/셸 히스토리에 노출되므로 임시 파일 (--cli-input-json)로 전달
+# 토큰을 CLI 인자로 주면 ps/셸 히스토리에 노출되므로 임시 파일 (--cli-input-json)로 전달합니다.
 TMPJSON=$(mktemp); chmod 600 "$TMPJSON"
 trap 'rm -f "$TMPJSON"' EXIT
 
@@ -36,8 +36,8 @@ modify_auth() { # $1 = ROTATE | SET
   aws elasticache wait replication-group-available --replication-group-id "$RG_ID" --profile "$PROFILE"
 }
 
-# ROTATE = 토큰 추가 (신규 그룹의 첫 토큰도 ROTATE로 추가), SET = 추가된 토큰만 허용하도록 고정.
-# 신규/기존 모두 ROTATE→SET 순서로 동작한다 (SET을 먼저 하면 "no token to SET" 실패).
+# ROTATE는 토큰을 추가하고 (신규 그룹의 첫 토큰도 ROTATE로 추가), SET은 추가된 토큰만 허용하도록 고정합니다.
+# 신규/기존 모두 ROTATE→SET 순서로 동작합니다 (SET을 먼저 하면 "no token to SET"으로 실패).
 echo "1/2 AUTH 토큰 추가 (ROTATE)..."; modify_auth ROTATE
 echo "2/2 새 토큰만 허용 (SET)...";    modify_auth SET
 
@@ -49,7 +49,7 @@ READER=$(aws elasticache describe-replication-groups --replication-group-id "$RG
 
 SECRET_JSON="{\"auth_token\":\"${TOKEN}\",\"primary_host\":\"${PRIMARY}\",\"reader_host\":\"${READER}\",\"port\":6379,\"tls\":true}"
 
-# upsert: 이미 존재하면 새 버전으로 갱신 (재실행/재배포 충돌 제거)
+# upsert 방식으로, 이미 존재하면 새 버전으로 갱신합니다 (재실행/재배포 충돌 제거).
 aws secretsmanager create-secret --name "$SECRET_NAME" \
   ${KMS_KEY_ARN:+--kms-key-id "$KMS_KEY_ARN"} \
   --secret-string "$SECRET_JSON" --query ARN --output text --profile "$PROFILE" 2>/dev/null ||

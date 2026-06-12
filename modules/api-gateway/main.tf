@@ -2,20 +2,21 @@
 # 백엔드 진입점: HTTP API (public) → VPC Link → internal ALB (경로 라우팅)
 #   → EKS 4서비스 (TargetGroupBinding으로 파드 등록).
 # CloudFront 우회 차단 (origin-lock)은 internal ALB에 붙인 regional WAF가
-# X-Origin-Verify 헤더를 검사해 수행한다 (WAF는 HTTP API에 직접 못 붙으므로 ALB에).
+# X-Origin-Verify 헤더를 검사해 수행합니다. WAF는 HTTP API에 직접 붙일 수 없으므로
+# ALB에 연결합니다.
 # ---------------------------------------------------------------------------
 
-# 리전별 ELB 로그전송 계정 (AWS 소유) — ALB access_logs 버킷정책에 사용 (계정ID 하드코딩 회피)
+# 리전별 ELB 로그 전송 계정 (AWS 소유) — ALB access_logs 버킷 정책에 사용하며 계정 ID 하드코딩을 피합니다.
 data "aws_elb_service_account" "current" {}
 
-# origin-verify 비밀 — CloudFront가 origin 요청에 넣는 헤더 값. WAF가 이 값과 대조.
-# special=false: 헤더/URL 이스케이프 없이 WAF byte-match와 바이트 단위로 일치
+# origin-verify 비밀 — CloudFront가 origin 요청에 넣는 헤더 값이며 WAF가 이 값과 대조합니다.
+# special=false 로 두면 헤더/URL 이스케이프 없이 WAF byte-match와 바이트 단위로 일치합니다.
 resource "random_password" "origin_verify" {
   length  = 40
   special = false
 }
 
-# 비밀은 SSM SecureString에 저장 (회전·운영 참조용). 같은 스택의 edge 모듈은 origin_verify_secret 출력으로 받는다
+# 비밀은 SSM SecureString에 저장합니다 (회전·운영 참조용). 같은 스택의 edge 모듈은 origin_verify_secret 출력으로 받습니다.
 resource "aws_ssm_parameter" "origin_verify" {
   name   = "${var.ssm_prefix}/origin-verify"
   type   = "SecureString"
@@ -27,9 +28,9 @@ resource "aws_ssm_parameter" "origin_verify" {
   }
 }
 
-# TargetGroupBinding용 정보(서비스별 target group ARN + 컨테이너 포트)를 SSM(Parameter Store)에 게시한다.
-# TGB의 targetGroupARN은 CR spec 필드라 ESO(Secret)로 못 채운다 → PS에 두고 install-k8s-stack의
-# tgb phase(terraform↔cluster 글루)가 끌어 TargetGroupBinding을 만든다. 비밀 아니라 String.
+# TargetGroupBinding용 정보 (서비스별 target group ARN + 컨테이너 포트)를 SSM (Parameter Store)에 게시합니다.
+# TGB의 targetGroupARN은 CR spec 필드라 ESO (Secret)로 채울 수 없으므로 PS에 두고, install-k8s-stack의
+# tgb phase (terraform↔cluster 글루)가 끌어와 TargetGroupBinding을 만듭니다. 비밀이 아니므로 String 입니다.
 resource "aws_ssm_parameter" "tgb" {
   for_each = var.tgb_ssm_prefix == "" ? {} : var.services
   name     = "${var.tgb_ssm_prefix}/${each.key}"
@@ -58,7 +59,7 @@ resource "aws_ssm_parameter" "tgb_alb_sg" {
 
 resource "aws_security_group" "vpc_link" {
   name = "${var.name}-vpclink-sg"
-  # 주의: SG description은 ASCII만 허용 (한글 불가)
+  # 주의: SG description은 ASCII만 허용되며 한글은 사용할 수 없습니다.
   description = "API Gateway VPC Link ENIs for ${var.name}: egress to internal ALB"
   vpc_id      = var.vpc_id
 
@@ -76,7 +77,7 @@ resource "aws_security_group" "vpc_link" {
 
 resource "aws_security_group" "alb" {
   name = "${var.name}-alb-sg"
-  # 주의: SG description은 ASCII만 허용 (한글 불가)
+  # 주의: SG description은 ASCII만 허용되며 한글은 사용할 수 없습니다.
   description = "Internal ALB for ${var.name}: listener port from VPC Link SG only"
   vpc_id      = var.vpc_id
 
@@ -101,7 +102,7 @@ resource "aws_security_group" "alb" {
 }
 
 # ---------------------------------------------------------------------------
-# 내부 ALB + 서비스별 타깃 그룹 (target-type=ip, Cilium ENI 파드 IP 직결)
+# 내부 ALB + 서비스별 타깃 그룹 (target-type=ip 로 Cilium ENI 파드 IP에 직결)
 # ---------------------------------------------------------------------------
 
 resource "aws_lb" "this" {
@@ -111,17 +112,17 @@ resource "aws_lb" "this" {
   subnets            = var.subnet_ids
   security_groups    = [aws_security_group.alb.id]
 
-  # 헤더 스무글링 방지 — 잘못된 헤더 필드 제거
+  # 헤더 스무글링을 방지하기 위해 잘못된 헤더 필드를 제거합니다.
   drop_invalid_header_fields = true
 
-  # per-target backend 포렌식 — 전용 버킷에 액세스 로그 (ALB는 SSE-S3만 지원)
+  # per-target 백엔드 포렌식을 위해 전용 버킷에 액세스 로그를 남깁니다 (ALB는 SSE-S3만 지원).
   access_logs {
     bucket  = aws_s3_bucket.alb_logs.id
     prefix  = var.name
     enabled = true
   }
 
-  # 버킷정책이 먼저 있어야 ALB 생성 시 로그 쓰기검증 통과
+  # 버킷 정책이 먼저 있어야 ALB 생성 시 로그 쓰기 검증을 통과합니다.
   depends_on = [aws_s3_bucket_policy.alb_logs]
 
   tags = {
@@ -129,7 +130,7 @@ resource "aws_lb" "this" {
   }
 }
 
-# 타깃은 Terraform이 등록하지 않는다 — 클러스터 내 ALB Controller가 TargetGroupBinding으로 채움
+# 타깃은 Terraform이 등록하지 않습니다 — 클러스터 내 ALB Controller가 TargetGroupBinding으로 채웁니다.
 resource "aws_lb_target_group" "this" {
   for_each = var.services
 
@@ -159,7 +160,7 @@ resource "aws_lb_listener" "http" {
   port              = var.listener_port
   protocol          = "HTTP"
 
-  # 매칭되는 경로 룰이 없으면 404 (라우팅 누락을 명확히)
+  # 매칭되는 경로 룰이 없으면 404를 반환합니다 (라우팅 누락을 명확히 드러냄).
   default_action {
     type = "fixed-response"
     fixed_response {
@@ -214,12 +215,12 @@ resource "aws_apigatewayv2_api" "this" {
 resource "aws_apigatewayv2_integration" "this" {
   api_id           = aws_apigatewayv2_api.this.id
   integration_type = "HTTP_PROXY"
-  # ALB private 통합 — integration_uri는 ALB "리스너" ARN (LB ARN 아님)
+  # ALB private 통합 — integration_uri는 ALB "리스너" ARN 입니다 (LB ARN이 아님).
   integration_method     = "ANY"
   connection_type        = "VPC_LINK"
   connection_id          = aws_apigatewayv2_vpc_link.this.id
   integration_uri        = aws_lb_listener.http.arn
-  payload_format_version = "1.0" # ALB VPC_LINK HTTP_PROXY는 1.0 필수
+  payload_format_version = "1.0" # ALB VPC_LINK HTTP_PROXY는 1.0이 필수입니다.
 }
 
 resource "aws_apigatewayv2_route" "proxy" {
@@ -263,7 +264,7 @@ resource "aws_apigatewayv2_stage" "default" {
 }
 
 # ---------------------------------------------------------------------------
-# regional WAF (origin-lock) — 내부 ALB에 연결
+# regional WAF (origin-lock) — 내부 ALB에 연결합니다.
 #   rule1: IP당 rate-limit 백스톱
 #   rule2: X-Origin-Verify 헤더가 비밀과 정확히 일치하지 않으면 차단
 # ---------------------------------------------------------------------------
@@ -306,7 +307,7 @@ resource "aws_wafv2_web_acl" "this" {
       block {}
     }
 
-    # 헤더가 비밀과 "일치하지 않으면" 차단 (not + EXACTLY). 헤더명은 반드시 소문자
+    # 헤더가 비밀과 "일치하지 않으면" 차단합니다 (not + EXACTLY). 헤더명은 반드시 소문자여야 합니다.
     statement {
       not_statement {
         statement {
@@ -353,7 +354,7 @@ resource "aws_wafv2_web_acl_association" "alb" {
 }
 
 # ---------------------------------------------------------------------------
-# ALB access_logs 전용 S3 버킷 — SSE-S3(AES256, ALB는 CMK 미지원), public 차단
+# ALB access_logs 전용 S3 버킷 — SSE-S3 (AES256, ALB는 CMK 미지원) 적용, public 차단
 # ---------------------------------------------------------------------------
 resource "aws_s3_bucket" "alb_logs" {
   bucket_prefix = "${var.name}-alb-logs-"
@@ -405,10 +406,10 @@ resource "aws_s3_bucket_policy" "alb_logs" {
 }
 
 # ---------------------------------------------------------------------------
-# ALB WAF 로깅 — 차단/탐지 전수 로그를 CW Logs로 (CMK 암호화, redact 민감 헤더)
+# ALB WAF 로깅 — 차단/탐지 전수 로그를 CW Logs로 보냅니다 (CMK 암호화, 민감 헤더 redact)
 # ---------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "waf_alb" {
-  name              = "aws-waf-logs-${var.name}-alb" # WAF 로깅은 이름 접두사 aws-waf-logs- 필수
+  name              = "aws-waf-logs-${var.name}-alb" # WAF 로깅은 이름 접두사 aws-waf-logs- 가 필수입니다.
   retention_in_days = var.log_retention_in_days
   kms_key_id        = var.kms_key_arn
 

@@ -1,8 +1,8 @@
-# install-k8s-stack.sh install_kafka 가 적용 (정적) — Strimzi 단일 브로커 Kafka (gb-kafka, KRaft).
-# 온프렘 gb-kafka(Kafka 4.1.2) 이관. stage 검증용: dual-role 1노드 + ephemeral 스토리지(재시작 시
-# 데이터 소실 허용 — prod는 persistent-claim). 내부 PLAINTEXT 리스너만(외부 노출 없음), 인증은
-# NetworkPolicy로 격리(A안). 단일 브로커라 내부 토픽 RF/ISR 전부 1로 강제(기본 3이면 생성 실패).
-# metadataVersion은 생략 — 신규 클러스터라 Strimzi가 Kafka 버전 기본값 사용(필요 시 핀).
+# install-k8s-stack.sh 의 install_kafka 가 적용하는 (정적) Strimzi 단일 브로커 Kafka 입니다 (gb-kafka, KRaft).
+# 온프렘 gb-kafka (Kafka 4.1.2)를 이관한 것입니다. stage 검증용이라 dual-role 1노드에 ephemeral 스토리지를 써서
+# 재시작 시 데이터 소실을 허용합니다 (prod 는 persistent-claim). 내부 PLAINTEXT 리스너만 두어 외부 노출이 없고,
+# 인증 대신 NetworkPolicy 로 격리합니다 (A안). 단일 브로커라 내부 토픽 RF/ISR 을 전부 1로 강제합니다 (기본 3이면 생성에 실패합니다).
+# metadataVersion 은 신규 클러스터라 Strimzi 가 Kafka 버전 기본값을 쓰도록 생략했습니다 (필요 시 핀).
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
@@ -35,17 +35,19 @@ metadata:
 spec:
   kafka:
     version: 4.1.2
+    # ⚠ stage 검증용이라 PLAINTEXT + NetworkPolicy 격리 (A안, 무인증)를 씁니다. type:internal 이라 외부 노출은
+    #   없으나 보안이 NetworkPolicy 단일 통제에 의존하므로, prod 승격 시 TLS + SCRAM/mTLS (entityOperator.userOperator)가 필수입니다.
     listeners:
       - name: plain
         port: 9092
         type: internal
         tls: false
     config:
-      # 단일 브로커 — 내부 토픽 RF/ISR 전부 1 (기본 3이면 단일 브로커에서 생성 실패)
+      # 단일 브로커라 내부 토픽 RF/ISR 을 전부 1로 둡니다 (기본 3이면 단일 브로커에서 생성에 실패합니다)
       offsets.topic.replication.factor: 1
       transaction.state.log.replication.factor: 1
       transaction.state.log.min.isr: 1
       default.replication.factor: 1
       min.insync.replicas: 1
   entityOperator:
-    topicOperator: {}   # KafkaTopic CR 조정용 (userOperator는 A안이라 생략)
+    topicOperator: {}   # KafkaTopic CR 조정용 (userOperator 는 A안이라 생략합니다)
