@@ -22,6 +22,7 @@ cd "$(dirname "$0")/../$ENV_DIR"
 KMS=$(terraform output -raw kms_key_arn)
 EPS=$(terraform output -json aurora_endpoints)
 ARNS=$(terraform output -json aurora_master_secret_arns)
+DBS=$(terraform output -json aurora_databases) # {클러스터: [서비스...]} — 순회 대상을 tfvars에서 자동 도출
 
 # 점프 호스트 자동 조회 (ASG 재기동으로 ID가 바뀌어도 추적)
 if [ -z "$INSTANCE" ]; then
@@ -32,13 +33,10 @@ if [ -z "$INSTANCE" ]; then
   echo "[${ENV}] jump host: $INSTANCE"
 fi
 
-for CLUSTER in core content; do
+for CLUSTER in $(jq -r 'keys[]' <<<"$DBS"); do
   EP=$(jq -r ".$CLUSTER" <<<"$EPS")
   ARN=$(jq -r ".$CLUSTER" <<<"$ARNS")
-  case "$CLUSTER" in
-    core) SERVICES="wallet member" ;;
-    content) SERVICES="community document" ;;
-  esac
+  SERVICES=$(jq -r ".$CLUSTER | join(\" \")" <<<"$DBS")
 
   # 점프 호스트에서 실행될 스크립트 (비밀번호는 호스트→SM 직행, 로컬 비노출)
   REMOTE=$(cat <<EOS
@@ -54,9 +52,12 @@ GRANT ALL PRIVILEGES ON svc_\${SVC}.* TO '\${SVC}_svc'@'%';
 FLUSH PRIVILEGES;
 SQL
   SJ="{\"username\":\"\${SVC}_svc\",\"password\":\"\${PW}\",\"host\":\"$EP\",\"port\":3306,\"dbname\":\"svc_\${SVC}\"}"
-  aws secretsmanager create-secret --name "sb/$ENV/\${SVC}/db" --kms-key-id '$KMS' --region $REGION \
+  # 스키마/유저는 언더스코어 (svc_app_admin / app_admin_svc), 시크릿 경로만 하이픈 (sb/.../app-admin/db) — 백엔드 ESO 표기와 일치
+  # 원격은 SSM /bin/sh일 수 있어 bash 전용 \${SVC//_/-} 대신 POSIX tr 사용
+  SECRET_SVC=\$(echo "\$SVC" | tr '_' '-')
+  aws secretsmanager create-secret --name "sb/$ENV/\${SECRET_SVC}/db" --kms-key-id '$KMS' --region $REGION \
     --secret-string "\$SJ" --query ARN --output text 2>/dev/null ||
-    aws secretsmanager put-secret-value --secret-id "sb/$ENV/\${SVC}/db" --region $REGION \
+    aws secretsmanager put-secret-value --secret-id "sb/$ENV/\${SECRET_SVC}/db" --region $REGION \
       --secret-string "\$SJ" --query ARN --output text
   echo "OK \$SVC"
 done

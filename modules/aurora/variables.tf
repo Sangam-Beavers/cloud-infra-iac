@@ -52,8 +52,8 @@ variable "serverless_min_acu" {
   default     = 0.5
 
   validation {
-    condition     = var.serverless_min_acu > 0
-    error_message = "serverless_min_acu는 0보다 커야 합니다."
+    condition     = var.serverless_min_acu == 0 || var.serverless_min_acu >= 0.5
+    error_message = "serverless_min_acu는 0 (auto-pause) 또는 0.5 이상이어야 합니다."
   }
 }
 

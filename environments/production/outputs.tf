@@ -48,6 +48,11 @@ output "aurora_master_secret_arns" {
   value       = { for k, m in module.aurora : k => m.master_user_secret_arn }
 }
 
+output "aurora_databases" {
+  description = "클러스터별 논리 DB (서비스) 목록 — run-db-bootstrap.sh가 클러스터/계정을 이 값으로 순회"
+  value       = { for k, m in module.aurora : k => m.databases }
+}
+
 output "eks_cluster_name" {
   description = "EKS 클러스터 이름"
   value       = module.eks.cluster_name

@@ -30,7 +30,8 @@ MASTER_PW=$(aws secretsmanager get-secret-value --secret-id "$MASTER_SECRET_ARN"
   --query SecretString --output text | jq -r .password)
 
 for SVC in "${SERVICES[@]}"; do
-  SECRET_NAME="sb/${ENV}/${SVC}/db"
+  # 스키마/유저는 언더스코어 (svc_app_admin / app_admin_svc), 시크릿 경로만 하이픈 (sb/.../app-admin/db) — 백엔드 ESO 표기와 일치
+  SECRET_NAME="sb/${ENV}/${SVC//_/-}/db"
   PW=$(aws secretsmanager get-random-password --exclude-punctuation \
     --password-length 32 --query RandomPassword --output text)
 

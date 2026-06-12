@@ -309,14 +309,14 @@ module "aurora" {
   vpc_id      = module.vpc.vpc_id
   subnet_ids  = values(module.vpc.db_subnet_ids)
   kms_key_arn = module.kms.key_arn
-  databases   = each.value
+  databases   = each.value.databases
 
   # private (EKS) + mgmt (점프 호스트)에서만 접근 가능
   allowed_cidrs = concat(values(var.network.private), values(var.network.mgmt))
 
-  instance_count          = var.aurora_config.instance_count
-  serverless_min_acu      = var.aurora_config.serverless_min_acu
-  serverless_max_acu      = var.aurora_config.serverless_max_acu
+  instance_count          = each.value.instance_count != null ? each.value.instance_count : var.aurora_config.instance_count
+  serverless_min_acu      = each.value.min_acu != null ? each.value.min_acu : var.aurora_config.serverless_min_acu
+  serverless_max_acu      = each.value.max_acu != null ? each.value.max_acu : var.aurora_config.serverless_max_acu
   backup_retention_period = var.aurora_config.backup_retention_period
   deletion_protection     = var.aurora_config.deletion_protection
   skip_final_snapshot     = var.aurora_config.skip_final_snapshot

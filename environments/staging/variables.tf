@@ -77,10 +77,15 @@ variable "eks_config" {
 }
 
 variable "aurora_config" {
-  description = "Aurora 사양 — clusters: 클러스터명 → 논리 DB (서비스) 목록"
+  description = "Aurora 사양 — clusters: 클러스터명 → {논리 DB 목록 + 클러스터별 인스턴스 수·ACU 오버라이드}"
   type = object({
-    clusters                = map(list(string))
-    instance_count          = number                # 1 = writer만, 2+ = writer + readers
+    clusters = map(object({
+      databases      = list(string)
+      instance_count = optional(number) # null이면 아래 공통 instance_count
+      min_acu        = optional(number) # null이면 serverless_min_acu (0 = 유휴 시 auto-pause)
+      max_acu        = optional(number) # null이면 serverless_max_acu
+    }))
+    instance_count          = number                # 클러스터 공통 기본 (1 = writer만, 2+ = writer + readers)
     serverless_min_acu      = optional(number, 0.5) # Serverless v2 최소 ACU (인스턴스당, 유휴 과금 기준)
     serverless_max_acu      = optional(number, 4)   # Serverless v2 최대 ACU (인스턴스당)
     backup_retention_period = optional(number, 1)

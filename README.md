@@ -140,7 +140,7 @@ aws ssm describe-instance-information --profile woori-fisa-1k --region ap-northe
 
 | scripts/ | 실행 위치 | 역할 |
 |---|---|---|
-| `run-db-bootstrap.sh` | 로컬 | terraform output과 점프 호스트를 자동 조회한 뒤, SSM 원격 실행으로 논리 DB·서비스 계정을 만들고 비밀을 저장합니다 |
+| `run-db-bootstrap.sh` | 로컬 | terraform output과 점프 호스트를 자동 조회한 뒤, SSM 원격 실행으로 논리 DB·서비스 계정을 만들고 비밀을 저장합니다 (`aurora_databases` output 기반 — tfvars `clusters`에 정의된 모든 클러스터를 자동 순회. 시크릿 경로의 `_`는 `-`로 치환: `app_admin` → `sb/{env}/app-admin/db`) |
 | `bootstrap-redis.sh` | 로컬 | Valkey AUTH 토큰을 무중단 (ROTATE→SET)으로 설정하고 `sb/{env}/redis/auth`에 저장합니다 — AWS API만 사용해 VPC 접근이 필요 없습니다 |
 | `bootstrap-db.sh` | 점프 호스트 | `run-db-bootstrap.sh`가 원격 실행하는 로직의 수동판입니다 (SSM 세션 디버깅용) |
 | `register-vpn-keys.sh` | 로컬 | `secrets/wg.{env}.env`의 키를 SSM SecureString (환경 CMK 암호화)으로 등록합니다 |
