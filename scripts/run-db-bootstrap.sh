@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# 로컬에서 실행: terraform output (엔드포인트/마스터비밀/CMK)을 읽어
-# SSM send-command로 "점프 호스트에서" 클러스터별 논리 DB + 서비스 계정 생성과
-# Secrets Manager 저장 (sb/{env}/{service}/db)을 원격 실행한다.
+# 로컬에서 실행합니다. terraform output (엔드포인트/마스터비밀/CMK)을 읽어
+# SSM send-command로 "점프 호스트에서" 클러스터별 논리 DB와 서비스 계정 생성,
+# Secrets Manager 저장 (sb/{env}/{service}/db)을 원격 실행합니다.
 #
-# 멱등: 재실행 시 비밀번호를 새로 발급해 DB 계정 (ALTER USER)과 비밀을 함께 갱신.
-# 점프 호스트 ID는 Name 태그 (sb-{env}-jump)로 자동 조회한다.
+# 멱등하게 동작합니다. 재실행 시 비밀번호를 새로 발급해 DB 계정 (ALTER USER)과
+# 비밀을 함께 갱신합니다.
+# 점프 호스트 ID는 Name 태그 (sb-{env}-jump)로 자동 조회합니다.
 #
 # 사용법: ./run-db-bootstrap.sh <env-dir> <env-short> [jump-instance-id] [profile]
 # 예시:   ./run-db-bootstrap.sh environments/production prod
@@ -22,9 +23,9 @@ cd "$(dirname "$0")/../$ENV_DIR"
 KMS=$(terraform output -raw kms_key_arn)
 EPS=$(terraform output -json aurora_endpoints)
 ARNS=$(terraform output -json aurora_master_secret_arns)
-DBS=$(terraform output -json aurora_databases) # {클러스터: [서비스...]} — 순회 대상을 tfvars에서 자동 도출
+DBS=$(terraform output -json aurora_databases) # {클러스터: [서비스...]} 형태로, 순회 대상을 tfvars에서 자동 도출합니다.
 
-# 점프 호스트 자동 조회 (ASG 재기동으로 ID가 바뀌어도 추적)
+# 점프 호스트를 자동 조회합니다 (ASG 재기동으로 ID가 바뀌어도 추적).
 if [ -z "$INSTANCE" ]; then
   INSTANCE=$(aws ec2 describe-instances --profile "$PROFILE" --region $REGION \
     --filters "Name=tag:Name,Values=sb-${ENV}-jump" "Name=instance-state-name,Values=running" \
@@ -34,11 +35,16 @@ if [ -z "$INSTANCE" ]; then
 fi
 
 for CLUSTER in $(jq -r 'keys[]' <<<"$DBS"); do
+  # 클러스터/서비스명은 원격 SQL·셸 본문에 삽입되므로 삽입 전 화이트리스트로 검증합니다 (메타문자 주입 차단).
+  [[ "$CLUSTER" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "ERROR: 잘못된 클러스터명 '$CLUSTER' (허용: ^[a-z][a-z0-9_-]*\$)"; exit 1; }
   EP=$(jq -r ".$CLUSTER" <<<"$EPS")
   ARN=$(jq -r ".$CLUSTER" <<<"$ARNS")
   SERVICES=$(jq -r ".$CLUSTER | join(\" \")" <<<"$DBS")
+  for svc in $SERVICES; do
+    [[ "$svc" =~ ^[a-z][a-z0-9_]*$ ]] || { echo "ERROR: 잘못된 서비스명 '$svc' (허용: ^[a-z][a-z0-9_]*\$)"; exit 1; }
+  done
 
-  # 점프 호스트에서 실행될 스크립트 (비밀번호는 호스트→SM 직행, 로컬 비노출)
+  # 점프 호스트에서 실행될 스크립트입니다 (비밀번호는 호스트→SM로 직행하여 로컬에 노출되지 않음).
   REMOTE=$(cat <<EOS
 set -eu
 MASTER_PW=\$(aws secretsmanager get-secret-value --secret-id '$ARN' --region $REGION --query SecretString --output text | jq -r .password)
@@ -52,8 +58,8 @@ GRANT ALL PRIVILEGES ON svc_\${SVC}.* TO '\${SVC}_svc'@'%';
 FLUSH PRIVILEGES;
 SQL
   SJ="{\"username\":\"\${SVC}_svc\",\"password\":\"\${PW}\",\"host\":\"$EP\",\"port\":3306,\"dbname\":\"svc_\${SVC}\"}"
-  # 스키마/유저는 언더스코어 (svc_app_admin / app_admin_svc), 시크릿 경로만 하이픈 (sb/.../app-admin/db) — 백엔드 ESO 표기와 일치
-  # 원격은 SSM /bin/sh일 수 있어 bash 전용 \${SVC//_/-} 대신 POSIX tr 사용
+  # 스키마/유저는 언더스코어 (svc_app_admin / app_admin_svc), 시크릿 경로만 하이픈 (sb/.../app-admin/db)을 써서 백엔드 ESO 표기와 일치시킵니다.
+  # 원격은 SSM /bin/sh일 수 있으므로 bash 전용 \${SVC//_/-} 대신 POSIX tr을 사용합니다.
   SECRET_SVC=\$(echo "\$SVC" | tr '_' '-')
   aws secretsmanager create-secret --name "sb/$ENV/\${SECRET_SVC}/db" --kms-key-id '$KMS' --region $REGION \
     --secret-string "\$SJ" --query ARN --output text 2>/dev/null ||

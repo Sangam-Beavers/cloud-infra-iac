@@ -1,13 +1,16 @@
 # =============================================================================
-# 외부 입력 (external inputs) — IaC가 만들지 않는, 외부(app/AI팀)가 소유한 자원.
-# terraform.tfvars(인프라 정의)와 개념·파일을 분리한다. terraform이 *.auto.tfvars를 자동 로드.
-# 복사해 .example를 떼고 값을 채운다 (실제 파일은 gitignored: *.tfvars).
+# 외부 입력 (external inputs) — IaC가 만들지 않고 외부 (app/AI팀) 가 소유한 자원입니다.
+# terraform.tfvars (인프라 정의) 와 개념·파일을 분리합니다. terraform이 *.auto.tfvars를 자동 로드합니다.
+# 복사해 .example를 떼고 값을 채웁니다 (실제 파일은 gitignored: *.tfvars).
 #   cp external.auto.tfvars.example external.auto.tfvars
 # =============================================================================
 
-# document-service IRSA 대상 자원 — 동일계정 가정(ARN은 배포 계정 caller identity로 동적 구성), 이름만 주입.
+# document-service IRSA 대상 자원입니다. 동일계정을 가정하므로 ARN은 배포 계정 caller identity로 동적 구성하고 이름만 주입합니다.
 document_irsa = {
   analysis_queue_name   = "<ANALYSIS_SQS_QUEUE_NAME>"
   document_bucket       = "<DOCUMENT_S3_BUCKET_NAME>"
   chatbot_function_name = "<CHATBOT_LAMBDA_FUNCTION_NAME>"
 }
+
+# community-service가 호출하는 번역 Lambda 함수 이름입니다 (EKS Pod Identity로 community SA에 invoke 권한 부여).
+community_translator_function = "<COMMUNITY_TRANSLATOR_LAMBDA_FUNCTION_NAME>"

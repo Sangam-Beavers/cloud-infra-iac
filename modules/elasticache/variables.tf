@@ -23,6 +23,11 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "vpc_cidr" {
+  description = "egress를 VPC 대역으로 한정하기 위한 VPC CIDR (관리평면 외 외부 exfil 차단)"
+  type        = string
+}
+
 variable "engine_version" {
   description = "Valkey 엔진 버전 (parameter_group_family와 메이저가 일치해야 함, 예: 9.0 ↔ valkey9)"
   type        = string
@@ -30,7 +35,7 @@ variable "engine_version" {
 }
 
 variable "parameter_group_family" {
-  description = "파라미터 그룹 패밀리 (engine_version과 일치해야 함)"
+  description = "파라미터 그룹 패밀리 (engine_version과 일치해야 합니다)"
   type        = string
   default     = "valkey9"
 }

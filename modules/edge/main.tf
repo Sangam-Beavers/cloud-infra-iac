@@ -1,17 +1,17 @@
 # ---------------------------------------------------------------------------
 # 엣지: 비공개 S3 (정적 SPA) + CloudFront + CLOUDFRONT-scope WAF.
-#   CloudFront는 OAC로 S3를 읽고, api_origin이 있으면 /api/* 를 API Gateway로 보낸다
-#   (X-Origin-Verify 헤더 주입으로 ALB regional WAF의 origin-lock 통과).
+# CloudFront는 OAC로 S3를 읽고, api_origin이 있으면 /api/* 를 API Gateway로 보냅니다.
+# 이때 X-Origin-Verify 헤더를 주입해 ALB regional WAF의 origin-lock을 통과합니다.
 # ---------------------------------------------------------------------------
 
 locals {
   use_domain = var.domain != ""
 }
 
-# SPA 정적 자산 버킷 — 비공개. 버킷명은 전역 유일이어야 해 prefix로 AWS가 suffix를 붙인다
+# SPA 정적 자산 버킷 (비공개). 버킷명은 전역 유일이어야 하므로 prefix만 주고 suffix는 AWS가 붙입니다.
 resource "aws_s3_bucket" "spa" {
   bucket_prefix = "${var.name}-spa-"
-  force_destroy = true # 정적 SPA 자산 (재배포 가능) — destroy 시 객체째 삭제 (down-*가 비어있지 않은 버킷에 막히지 않게)
+  force_destroy = true # 정적 SPA 자산은 재배포 가능하므로 destroy 시 객체째 삭제합니다 (down-*가 비어있지 않은 버킷에 막히지 않도록).
 }
 
 resource "aws_s3_bucket_public_access_block" "spa" {
@@ -22,7 +22,7 @@ resource "aws_s3_bucket_public_access_block" "spa" {
   restrict_public_buckets = true
 }
 
-# 정적 자산 롤백 대비 버전 관리
+# 정적 자산 롤백에 대비한 버전 관리
 resource "aws_s3_bucket_versioning" "spa" {
   bucket = aws_s3_bucket.spa.id
   versioning_configuration {
@@ -30,7 +30,7 @@ resource "aws_s3_bucket_versioning" "spa" {
   }
 }
 
-# SSE-S3(AES256) — 자산은 비밀이 아니므로 CMK 불필요 (OAC가 CMK Decrypt 권한 필요해지는 복잡도 회피)
+# SSE-S3 (AES256) — 자산은 비밀이 아니므로 CMK가 필요 없습니다. OAC에 CMK Decrypt 권한이 따라붙는 복잡도를 피합니다.
 resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {
   bucket = aws_s3_bucket.spa.id
   rule {
@@ -41,7 +41,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {
   }
 }
 
-# CloudFront가 비공개 S3를 읽는 통로 (OAC, 요청을 SigV4로 서명)
+# CloudFront가 비공개 S3를 읽는 통로 (OAC) — 요청을 SigV4로 서명합니다.
 resource "aws_cloudfront_origin_access_control" "spa" {
   name                              = "${var.name}-spa-oac"
   origin_access_control_origin_type = "s3"
@@ -54,7 +54,7 @@ data "aws_cloudfront_cache_policy" "optimized" {
   name = "Managed-CachingOptimized"
 }
 
-# API 동작용 — 캐시 비활성 + Host 제외 전체 뷰어 헤더 전달 (API GW는 자기 execute-api Host 필요)
+# API behavior용 — 캐시를 끄고 Host를 제외한 전체 뷰어 헤더를 전달합니다 (API GW는 자기 execute-api Host를 요구).
 data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
@@ -64,7 +64,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 }
 
 # CloudFront 앞단 방어 (CLOUDFRONT scope = us-east-1 전용): AWS 관리형 3종 + IP당 rate-limit.
-# ALB regional WAF는 origin-lock 전용이고, 무거운 방어 룰셋은 여기 (엣지)서 담당한다.
+# ALB regional WAF는 origin-lock 전용이고, 무거운 방어 룰셋은 여기 엣지에서 담당합니다.
 resource "aws_wafv2_web_acl" "cf" {
   provider = aws.us_east_1
   name     = "${var.name}-cf-waf"
@@ -163,8 +163,8 @@ resource "aws_wafv2_web_acl" "cf" {
 
 # ---------------------------------------------------------------------------
 # 커스텀 도메인 (domain 지정 시): Route53 zone + ACM 인증서 (apex + 와일드카드).
-# zone은 prevent_destroy로 보호 — 도메인 등록업체에 route53_name_servers를 1회 위임해야
-# ACM DNS 검증이 통과한다 (위임 전에는 검증이 대기).
+# zone은 prevent_destroy로 보호합니다. 도메인 등록업체에 route53_name_servers를 1회 위임해야
+# ACM DNS 검증이 통과하며, 위임 전에는 검증이 대기 상태로 남습니다.
 # ---------------------------------------------------------------------------
 resource "aws_route53_zone" "this" {
   count = local.use_domain ? 1 : 0
@@ -188,7 +188,7 @@ resource "aws_acm_certificate" "this" {
   }
 }
 
-# DNS 검증 레코드 (apex·와일드카드가 같은 레코드를 공유할 수 있어 allow_overwrite)
+# DNS 검증 레코드 — apex와 와일드카드가 같은 레코드를 공유할 수 있으므로 allow_overwrite를 둡니다.
 resource "aws_route53_record" "cert_validation" {
   for_each = local.use_domain ? {
     for dvo in aws_acm_certificate.this[0].domain_validation_options : dvo.domain_name => {
@@ -214,8 +214,31 @@ resource "aws_acm_certificate_validation" "this" {
   validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
-# CloudFront 액세스 로깅 (logging_config) 은 미설정 — 현재 가시성은 WAF CloudWatch 메트릭·sampled_requests 뿐 (전수 로그 아님, WAF logging_configuration 미설정).
-# 전수 가시성이 필요하면 WAF logging_configuration + CloudFront S3 로그 버킷을 추가한다.
+# SPA 라우팅 — viewer-request 함수로 확장자 없는 경로를 루트 객체로 rewrite합니다 (S3 behavior 한정).
+# 이전에는 분배 전역 custom_error_response 403/404→index.html을 썼으나, 그 방식이 /api/* behavior의
+# 백엔드 정상 403/404까지 index.html 200으로 삼켜 프론트 envelope 검사를 깨뜨렸습니다. 그래서 함수 방식으로 교체했습니다.
+resource "aws_cloudfront_function" "spa_router" {
+  name    = "${var.name}-spa-router"
+  runtime = "cloudfront-js-2.0"
+  comment = "${var.name} SPA fallback (확장자 없는 경로 → ${var.default_root_object}). /api/*는 별도 behavior이므로 적용되지 않습니다."
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri;
+      var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+      // 확장자 있는 정적 자산은 그대로, 그 외(SPA 클라이언트 라우트)는 루트 객체로 rewrite
+      if (lastSegment.indexOf('.') === -1) {
+        request.uri = '/${var.default_root_object}';
+      }
+      return request;
+    }
+  EOT
+}
+
+# CloudFront 액세스 로깅 (logging_config)은 설정하지 않았습니다. 현재 가시성은 WAF CloudWatch 메트릭과
+# sampled_requests뿐이며 (전수 로그는 아님), 전수 가시성이 필요하면 WAF logging_configuration과
+# CloudFront S3 로그 버킷을 추가합니다.
 resource "aws_cloudfront_distribution" "this" {
   enabled             = true
   comment             = "${var.name} SPA"
@@ -229,7 +252,7 @@ resource "aws_cloudfront_distribution" "this" {
     origin_access_control_id = aws_cloudfront_origin_access_control.spa.id
   }
 
-  # API Gateway 오리진 (api_origin 지정 시) — X-Origin-Verify를 주입해 ALB regional WAF의 origin-lock 통과
+  # API Gateway 오리진 (api_origin 지정 시) — X-Origin-Verify를 주입해 ALB regional WAF의 origin-lock을 통과합니다.
   dynamic "origin" {
     for_each = var.api_origin != null ? [var.api_origin] : []
     content {
@@ -243,7 +266,7 @@ resource "aws_cloudfront_distribution" "this" {
         origin_ssl_protocols   = ["TLSv1.2"]
       }
 
-      # 뷰어가 같은 헤더를 보내도 origin custom header가 우선해 덮어쓴다 (위조 방지)
+      # 뷰어가 같은 헤더를 보내도 origin custom header가 우선해 덮어씁니다 (위조 방지).
       custom_header {
         name  = "X-Origin-Verify"
         value = origin.value.origin_verify_secret
@@ -258,9 +281,18 @@ resource "aws_cloudfront_distribution" "this" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
+
+    # SPA 라우팅 (S3 behavior 한정) — /api/* behavior에는 적용하지 않으므로 백엔드 403/404가 그대로 전달됩니다.
+    dynamic "function_association" {
+      for_each = var.spa_fallback ? [1] : []
+      content {
+        event_type   = "viewer-request"
+        function_arn = aws_cloudfront_function.spa_router.arn
+      }
+    }
   }
 
-  # /api/* → API Gateway 오리진 (백엔드가 /api/v1 네이티브라 경로 재작성 없음)
+  # /api/* → API Gateway 오리진 — 백엔드가 /api/v1 네이티브라 경로 재작성을 하지 않습니다.
   dynamic "ordered_cache_behavior" {
     for_each = var.api_origin != null ? [var.api_origin] : []
     content {
@@ -275,17 +307,6 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
-  # SPA: 객체 없는 경로의 403/404를 index.html 200으로 (클라이언트 라우터가 처리)
-  dynamic "custom_error_response" {
-    for_each = var.spa_fallback ? toset([403, 404]) : toset([])
-    content {
-      error_code            = custom_error_response.value
-      response_code         = 200
-      response_page_path    = "/${var.default_root_object}"
-      error_caching_min_ttl = 10
-    }
-  }
-
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -294,7 +315,7 @@ resource "aws_cloudfront_distribution" "this" {
 
   aliases = local.use_domain ? [var.domain] : null
 
-  # domain 지정 시 ACM 인증서 (검증 완료분), 아니면 기본 *.cloudfront.net
+  # domain 지정 시 검증을 마친 ACM 인증서를, 아니면 기본 *.cloudfront.net 인증서를 사용합니다.
   viewer_certificate {
     cloudfront_default_certificate = local.use_domain ? null : true
     acm_certificate_arn            = local.use_domain ? aws_acm_certificate_validation.this[0].certificate_arn : null
@@ -307,7 +328,7 @@ resource "aws_cloudfront_distribution" "this" {
   }
 }
 
-# 이 배포 (OAC)가 보낸 요청에만 S3 읽기 허용 (SourceArn 조건으로 다른 배포 차단)
+# 이 배포 (OAC)가 보낸 요청에만 S3 읽기를 허용합니다 — SourceArn 조건으로 다른 배포를 차단합니다.
 resource "aws_s3_bucket_policy" "spa" {
   bucket = aws_s3_bucket.spa.id
   policy = jsonencode({
@@ -342,13 +363,13 @@ resource "aws_route53_record" "alias" {
 }
 
 # ---------------------------------------------------------------------------
-# CloudFront WAF 로깅 — 차단/탐지 전수 로그를 CW Logs(us-east-1)로.
-# CLOUDFRONT scope WAF 로깅은 반드시 us-east-1. 환경 CMK는 ap-northeast-2라
-# 못 쓰므로 AWS 관리형 키 (로그는 비밀 아님).
+# CloudFront WAF 로깅 — 차단/탐지 전수 로그를 CW Logs (us-east-1)로 보냅니다.
+# CLOUDFRONT scope WAF 로깅은 반드시 us-east-1이어야 합니다. 환경 CMK는 ap-northeast-2라
+# 여기서는 못 쓰므로 AWS 관리형 키를 씁니다 (로그는 비밀이 아님).
 # ---------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "waf_cf" {
   provider          = aws.us_east_1
-  name              = "aws-waf-logs-${var.name}-cf" # WAF 로깅은 이름 접두사 aws-waf-logs- 필수
+  name              = "aws-waf-logs-${var.name}-cf" # WAF 로깅은 이름 접두사 aws-waf-logs- 가 필수입니다.
   retention_in_days = var.log_retention_in_days
 
   tags = { Name = "aws-waf-logs-${var.name}-cf" }

@@ -9,7 +9,7 @@ resource "aws_elasticache_subnet_group" "this" {
 
 resource "aws_security_group" "this" {
   name = "${var.name}-sg"
-  # 주의: SG description은 ASCII만 허용 (한글 불가)
+  # SG description은 ASCII만 허용하므로 한글을 쓸 수 없습니다.
   description = "Valkey ${var.name}: allow 6379 from private/mgmt subnets only"
   vpc_id      = var.vpc_id
 
@@ -25,7 +25,7 @@ resource "aws_security_group" "this" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr] # VPC 대역 한정 (관리평면 외 외부 exfil 차단 — 라우팅이 1차, SG가 2차 방어)
   }
 
   tags = {
@@ -34,7 +34,7 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_elasticache_parameter_group" "this" {
-  # 패밀리 변경 (엔진 메이저 업그레이드) 시 이름이 함께 바뀌어야 교체 가능
+  # 패밀리 변경 (엔진 메이저 업그레이드) 시 이름이 함께 바뀌어야 교체가 가능합니다.
   name        = "${var.name}-${var.parameter_group_family}"
   family      = var.parameter_group_family
   description = "Eviction policy for session/token workload"
@@ -44,8 +44,8 @@ resource "aws_elasticache_parameter_group" "this" {
     value = var.maxmemory_policy
   }
 
-  # 교체 시 "새 그룹 생성 → 복제 그룹 전환 → 옛 그룹 삭제" 순서 보장
-  # (기본 순서인 삭제-우선은 사용 중인 그룹이라 항상 실패)
+  # 교체 시 "새 그룹 생성 → 복제 그룹 전환 → 옛 그룹 삭제" 순서를 보장합니다.
+  # 기본 순서인 삭제-우선은 사용 중인 그룹이라 항상 실패하기 때문입니다.
   lifecycle {
     create_before_destroy = true
   }
@@ -60,13 +60,13 @@ resource "aws_elasticache_replication_group" "this" {
   node_type      = var.node_type
   port           = 6379
 
-  # 클러스터 모드 비활성: primary 1 + replica (node_count - 1)
+  # 클러스터 모드를 비활성화하여 primary 1대와 replica (node_count - 1)대로 구성합니다.
   num_cache_clusters         = var.node_count
   automatic_failover_enabled = var.node_count > 1
   multi_az_enabled           = var.node_count > 1
 
-  # 암호화: 저장 (CMK) + 전송 (TLS).
-  # AUTH 토큰은 scripts/bootstrap-redis.sh로 설정 — Terraform state에 남기지 않음
+  # 저장 데이터는 CMK로, 전송 구간은 TLS로 암호화합니다.
+  # AUTH 토큰은 scripts/bootstrap-redis.sh로 설정하여 Terraform state에 남기지 않습니다.
   at_rest_encryption_enabled = true
   kms_key_id                 = var.kms_key_arn
   transit_encryption_enabled = true
@@ -76,11 +76,11 @@ resource "aws_elasticache_replication_group" "this" {
   security_group_ids   = [aws_security_group.this.id]
 
   snapshot_retention_limit = var.snapshot_retention
-  # apply_immediately=true: node_type/버전 등 변경을 유지보수 창구 대기 없이 즉시 반영 (순단 가능)
+  # apply_immediately=true로 node_type/버전 등의 변경을 유지보수 창구 대기 없이 즉시 반영합니다 (순단 가능).
   apply_immediately = true
 
   lifecycle {
-    # AUTH 토큰은 bootstrap-redis.sh가 API로 설정 — Terraform이 드리프트로 보지 않도록 무시
+    # AUTH 토큰은 bootstrap-redis.sh가 API로 설정하므로, Terraform이 드리프트로 보지 않도록 무시합니다.
     ignore_changes = [auth_token]
   }
 

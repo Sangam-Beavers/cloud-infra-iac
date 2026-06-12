@@ -1,56 +1,59 @@
 # =============================================================================
-# production terraform.tfvars 템플릿 (이 .example 파일이 커밋되는 버전)
+# production terraform.tfvars 템플릿입니다 (이 .example 파일이 커밋되는 버전).
 # -----------------------------------------------------------------------------
 # 사용법:
-#   1) 이 파일을 같은 디렉토리의 terraform.tfvars 로 복사한다 (terraform.tfvars는 gitignore됨).
+#   1) 이 파일을 같은 디렉토리의 terraform.tfvars 로 복사합니다 (terraform.tfvars는 gitignore됩니다).
 #        cp terraform.tfvars.example terraform.tfvars
-#   2) 아래 <...> 플레이스홀더를 실제 결정값으로 채운다. 채우는 기준은 각 항목 주석 참고.
-#   3) `terraform plan`으로 in-place/replace 여부를 확인한 뒤 apply.
+#   2) 아래 <...> 플레이스홀더를 실제 결정값으로 채웁니다. 채우는 기준은 각 항목 주석을 참고하세요.
+#   3) `terraform plan`으로 in-place/replace 여부를 확인한 뒤 apply합니다.
 # 주의:
-#   - 여기 값은 "예시/플레이스홀더"다. 실측값 (특히 network CIDR, VPN 토폴로지)은
-#     커밋된 채로 두지 말고 terraform.tfvars (gitignore)에만 둔다.
-#   - 모든 결정값은 이 파일 한 곳에서만 정한다 (main.tf는 배선만). 환경별 차이 (prod=HA,
-#     stage=비용 절감)도 전부 값으로 표현된다.
+#   - 여기 값은 예시/플레이스홀더입니다. 실측값 (특히 network CIDR, VPN 토폴로지) 은
+#     커밋된 채로 두지 말고 terraform.tfvars (gitignore) 에만 둡니다.
+#   - 모든 결정값은 이 파일 한 곳에서만 정합니다 (main.tf는 배선만 담당). 환경별 차이 (prod=HA,
+#     stage=비용 절감) 도 전부 값으로 표현됩니다.
 # =============================================================================
 
-project     = "global-bridge"  # 그대로 둠 (태그·네이밍 접두사).
-environment = "production"      # 그대로 둠 (application 스택 ARN 조회 키).
-aws_region = "ap-northeast-2" # 그대로 둠 (서울). 다른 리전은 사실상 신규 배포.
-# aws_profile / state_bucket은 여기 두지 않는다 — Makefile의 PROFILE/STATE_BUCKET이 주입 (계정 전환은 make 한 곳).
+project     = "global-bridge"  # 그대로 둡니다 (태그·네이밍 접두사).
+environment = "production"      # 그대로 둡니다 (application 스택 ARN 조회 키).
+aws_region = "ap-northeast-2" # 그대로 둡니다 (서울). 다른 리전은 사실상 신규 배포입니다.
+# aws_profile / state_bucket은 여기 두지 않습니다. Makefile의 PROFILE/STATE_BUCKET이 주입하므로 계정 전환은 make 한 곳에서만 합니다.
 
 # --- 자원 사양/결정값 ---
 # nat_gateway_strategy: none (아웃바운드 없음) | single (NAT 1개, 저렴) | per_az (AZ별 NAT, HA).
-#   prod 운영은 보통 per_az 권장. single 사용 시 NAT AZ 장애 대비 vpc_config에
-#   single_nat_az = "<public AZ 접미사>" 를 추가하면 그 AZ로 재배치 (복구 ~5분). 모듈 validation:
-#   single_nat_az는 network.public에 존재하는 AZ여야 함.
+#   prod 운영은 보통 per_az를 권장합니다. single을 쓸 때 NAT AZ 장애에 대비하려면 vpc_config에
+#   single_nat_az = "<public AZ 접미사>" 를 추가하면 그 AZ로 재배치합니다 (복구 약 5분). 모듈 validation은
+#   single_nat_az가 network.public에 존재하는 AZ일 것을 요구합니다.
 vpc_config      = { nat_gateway_strategy = "<none|single|per_az>" }
-# deletion_window_in_days: KMS 삭제 예약 대기일 (7~30). prod 운영은 안전 위해 30 권장 (예시는 7).
-kms_config      = { deletion_window_in_days = 7 }
-# node_type: 캐시 노드 타입 (t4g=ARM). node_count: 총 노드 수 (2+면 Multi-AZ failover).
-#   snapshot_retention (선택, 기본 1)도 필요 시 추가. prod HA는 node_count 3, retention 7 권장.
+# deletion_window_in_days: KMS 삭제 예약 대기일 (7~30) 입니다. prod 운영은 안전을 위해 30으로 두며 복사 시 그대로 유지합니다.
+kms_config      = { deletion_window_in_days = 30 }
+# node_type은 캐시 노드 타입 (t4g=ARM), node_count는 총 노드 수입니다 (2+면 Multi-AZ failover).
+#   snapshot_retention (선택, 기본 1) 도 필요하면 추가합니다. prod HA는 node_count 3, retention 7을 권장합니다.
 redis_config    = { node_type = "<cache.t4g.micro|...>", node_count = 2 }
-# 점프 호스트 (관리 통로) 인스턴스 타입. t4g.small이면 충분 (무상태).
+# 점프 호스트 (관리 통로) 인스턴스 타입입니다. 무상태라 t4g.small이면 충분합니다.
 jumphost_config = { instance_type = "t4g.small" }
-# EKS 노드: instance_types는 ARM (t4g/m7g)이면 컨테이너 이미지 arm64 필수 (모듈 ami_type 기본 ARM_64).
-#   x86으로 가려면 모듈 ami_type도 함께 바꿔야 함. desired/min/max는 트래픽에 맞춰 채울 것.
+# EKS 노드: instance_types가 ARM (t4g/m7g) 이면 컨테이너 이미지를 arm64로 빌드해야 합니다 (모듈 ami_type 기본 ARM_64).
+#   x86으로 가려면 모듈 ami_type도 함께 바꿔야 합니다. desired/min/max는 트래픽에 맞춰 채웁니다.
 eks_config      = { instance_types = ["<t4g.medium|m7g.large|...>"], desired_size = 2, min_size = 1, max_size = 6, endpoint_public_access = false }
-# Aurora: clusters = 클러스터명 → { databases = 논리 DB (서비스) 목록 + 클러스터별 오버라이드 }. blast radius 분리를 위해 보통 2개 (core/content).
-#   공통 instance_count 1=writer만, 2+=writer+reader (HA). serverless_max_acu (기본 4)/backup_retention_period (기본 1)도 필요 시 추가.
-#   클러스터별로 instance_count·min_acu·max_acu를 줘서 공통값을 덮을 수 있다 (min_acu=0이면 유휴 시 auto-pause).
-#   예시는 단일 클러스터 1개만 보여줌 — 실제론 core/content 두 개로 채울 것.
+# Aurora: clusters = 클러스터명 → { databases = 논리 DB (서비스) 목록 + 클러스터별 오버라이드 } 입니다. blast radius 분리를 위해 보통 2개 (core/content) 로 둡니다.
+#   공통 instance_count는 1이면 writer만, 2+면 writer+reader (HA) 입니다. serverless_max_acu (기본 4) /backup_retention_period (기본 1) 도 필요하면 추가합니다.
+#   클러스터별로 instance_count·min_acu·max_acu를 줘서 공통값을 덮을 수 있습니다 (min_acu=0이면 유휴 시 auto-pause).
+#   예시는 단일 클러스터 1개만 보여주지만, 실제로는 core/content 두 개로 채웁니다.
 aurora_config = {
   clusters = {
     "<cluster>" = { databases = ["<svc1>", "<svc2>"] }
     # 예) admin = { databases = ["admin", "app_admin"], instance_count = 1, min_acu = 0, max_acu = 2 }  # 단일 writer + auto-pause
   }
   instance_count = 2 # 클러스터 공통 기본
-  # 운영 전환 시: deletion_protection = true, skip_final_snapshot = false (기본은 false / true)
+  # prod 안전값이므로 복사 시 그대로 유지합니다. 모듈 기본은 dev값 (false/true/1) 이라 prod에서는 아래를 반드시 명시합니다.
+  deletion_protection     = true # destroy/콘솔 실수 삭제 차단
+  skip_final_snapshot     = false # 삭제 시 최종 스냅샷 보존
+  backup_retention_period = 7      # PITR 보존일 (운영 최소)
 }
 
-# API Gateway origin: 백엔드 서비스를 내부 ALB 경로로 매핑 (백엔드는 /api/v1 네이티브).
-#   path_patterns = ALB 경로 룰 리스트 (CloudFront가 /api/* 를 그대로 전달 — strip 없음). 서비스당 다중 가능.
-#   port = Service targetPort, priority = 리스너 룰 우선순위 (서비스별 고유, 낮을수록 먼저).
-#   health_check_path = SpringBoot actuator. waf_rate_limit (선택, 기본 2000) 은 IP당 5분 윈도우 요청 상한.
+# API Gateway origin: 백엔드 서비스를 내부 ALB 경로로 매핑합니다 (백엔드는 /api/v1 네이티브).
+#   path_patterns는 ALB 경로 룰 리스트입니다 (CloudFront가 /api/* 를 그대로 전달하며 strip하지 않습니다). 서비스당 여러 개를 둘 수 있습니다.
+#   port는 Service targetPort, priority는 리스너 룰 우선순위입니다 (서비스별 고유, 낮을수록 먼저 매칭).
+#   health_check_path는 SpringBoot actuator입니다. waf_rate_limit (선택, 기본 2000) 은 IP당 5분 윈도우 요청 상한입니다.
 api_gateway_config = {
   waf_rate_limit = 2000
   services = {
@@ -61,14 +64,14 @@ api_gateway_config = {
   }
 }
 
-# 엣지 커스텀 도메인은 secrets/domain.env 의 GB_PROD_DOMAIN 에서 주입됩니다 (tfvars 아님).
-# 지정 시 Route53 zone + ACM (apex + *.도메인 와일드카드) + CloudFront alias 활성화, NS는 등록업체에 1회 위임.
+# 엣지 커스텀 도메인은 secrets/domain.env 의 GB_PROD_DOMAIN 에서 주입됩니다 (tfvars가 아닙니다).
+# 지정하면 Route53 zone + ACM (apex + *.도메인 와일드카드) + CloudFront alias가 활성화되며, NS는 등록업체에 1회 위임합니다.
 
-# --- 네트워크 설계 (내부 IP 교통 정리표 기준으로 채울 것) ---
-# 내부 IP 교통 정리표를 그대로 옮긴다. vpc_cidr (/16) 안에 4계층 서브넷이 모두 포함되고 서로 겹치지 않게.
+# --- 네트워크 설계 (내부 IP 교통 정리표 기준으로 채웁니다) ---
+# 내부 IP 교통 정리표를 그대로 옮깁니다. vpc_cidr (/16) 안에 4계층 서브넷이 모두 포함되고 서로 겹치지 않아야 합니다.
 #   public=인터넷 향, private=앱 (EKS), db=격리 DB/캐시, mgmt=관리/VPN 광고.
-#   AZ 키 (a/c/...)는 prod 운영이면 3개 (a/b/c) 권장 (HA). 여기 mgmt 대역은 VPN BGP로 온프렘에 광고되니
-#   온프렘 라우팅과 충돌하지 않는 대역을 고를 것. db/private 값은 Aurora/Valkey allowed_cidrs로도 쓰임.
+#   AZ 키 (a/c/...) 는 prod 운영이면 3개 (a/b/c) 를 권장합니다 (HA). 여기 mgmt 대역은 VPN BGP로 온프렘에 광고되므로
+#   온프렘 라우팅과 충돌하지 않는 대역을 고릅니다. db/private 값은 Aurora/Valkey allowed_cidrs로도 쓰입니다.
 network = {
   vpc_cidr = "<VPC_CIDR>" # 예: 10.0.0.0/16
   public   = { a = "<CIDR>", c = "<CIDR>" }
@@ -77,12 +80,12 @@ network = {
   mgmt     = { a = "<CIDR>", c = "<CIDR>" }
 }
 
-# --- VPN 토폴로지 (온프렘 pfSense 설정과 합 맞춤) ---
-# 온프렘 pfSense와 양쪽 합이 맞아야 터널이 붙는다. 채울 때 반드시 온프렘 담당과 값을 맞출 것:
-#   - address (우리 EC2 측 터널 IP/28) 와 peer_ip (pfSense 측 터널 IP)는 같은 /28 안의 짝.
-#   - listen_port (WG UDP)는 양쪽 동일. active/standby가 다른 포트 (51820/51821).
-#   - peer_pubkey_ssm 은 온프렘 공개키가 저장된 SSM 파라미터 "이름"(접두사 /sb/prod/vpn 하위). 키 이름은 보통 고정.
-#   - 우리 측 WG 키는 `make vpn-prod`로 SSM에 먼저 등록한 뒤 apply할 것 (user_data가 부팅 시 fetch).
+# --- VPN 토폴로지 (온프렘 pfSense 설정과 합을 맞춥니다) ---
+# 온프렘 pfSense와 양쪽 합이 맞아야 터널이 붙습니다. 채울 때 반드시 온프렘 담당과 값을 맞춥니다:
+#   - address (우리 EC2 측 터널 IP/28) 와 peer_ip (pfSense 측 터널 IP) 는 같은 /28 안의 짝입니다.
+#   - listen_port (WG UDP) 는 양쪽이 동일하며, active/standby가 다른 포트를 씁니다 (51820/51821).
+#   - peer_pubkey_ssm 은 온프렘 공개키가 저장된 SSM 파라미터의 "이름" 입니다 (접두사 /sb/prod/vpn 하위). 키 이름은 보통 고정입니다.
+#   - 우리 측 WG 키는 `make vpn-prod`로 SSM에 먼저 등록한 뒤 apply합니다 (user_data가 부팅 시 fetch).
 vpn_tunnels = {
   wg0active = {
     address         = "<EC2_TUNNEL_IP>/28" # 예: 10.255.0.1/28
@@ -97,18 +100,18 @@ vpn_tunnels = {
     peer_pubkey_ssm = "onprem-standby-pub"
   }
 }
-# 관례: wg0active의 EC2 측 터널 IP를 그대로 router-id로 (라우터 식별자, 충돌 주의).
+# 관례상 wg0active의 EC2 측 터널 IP를 그대로 router-id로 씁니다 (라우터 식별자라 충돌에 주의).
 vpn_bgp_router_id = "<WG0ACTIVE_EC2_TUNNEL_IP>"
-# 온프렘이 광고하는 사내망 대역 (들). WG AllowedIPs + mgmt return 라우트 대상. 온프렘 실제 대역과 일치시킬 것.
+# 온프렘이 광고하는 사내망 대역들입니다. WG AllowedIPs와 mgmt return 라우트 대상이며, 온프렘 실제 대역과 일치시킵니다.
 vpn_onprem_cidrs   = ["<ONPREM_CIDR_1>", "<ONPREM_CIDR_2>"]
-# pfSense NAT source IP. 비대칭 라우팅 방지 policy routing 대상. 온프렘 pfSense NAT 설정값과 동일하게 채울 것.
+# pfSense NAT source IP입니다. 비대칭 라우팅 방지 policy routing 대상이며, 온프렘 pfSense NAT 설정값과 동일하게 채웁니다.
 vpn_pfsense_nat_ip = "<PFSENSE_NAT_IP>"
 
-# --- 온프렘 Harbor/ArgoCD 연동 (선택) — enabled=true로 켜면 하이브리드 DNS·SNAT·access entry 생성 ---
-# 대칭 은닉: private/db는 on-prem에 광고/노출 0. on-prem엔 mgmt/터널 IP 단일 소스로만 보인다.
+# --- 온프렘 Harbor/ArgoCD 연동 (선택) — enabled=true로 켜면 하이브리드 DNS·SNAT·access entry가 생성됩니다 ---
+# 대칭 은닉: private/db는 on-prem에 광고·노출하지 않으며, on-prem에는 mgmt/터널 IP 단일 소스로만 보입니다.
 # 사전 준비: ① Harbor robot 계정 + 사설 CA (노드 containerd 신뢰 — DaemonSet/user_data)
 #           ② pfSense: EKS 엔드포인트 도메인 → resolver_inbound_ips 조건부 포워더 + 라우터→Harbor:443 방화벽
-# ArgoCD 전용 IAM User·액세스 키는 argocd-iam 모듈이 자동 생성 → secrets/.argocd-cluster로 핸드오프.
+# ArgoCD 전용 IAM User·액세스 키는 argocd-iam 모듈이 자동 생성하여 secrets/.argocd-cluster로 핸드오프합니다.
 onprem_integration = {
   enabled               = false                   # 준비 끝나면 true
   harbor_destinations   = ["<HARBOR_IP>/32"]      # 노드가 Pull할 Harbor (least-privilege /32)

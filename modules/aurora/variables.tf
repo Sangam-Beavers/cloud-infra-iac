@@ -23,8 +23,13 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "vpc_cidr" {
+  description = "egress를 VPC 대역으로 한정하기 위한 VPC CIDR (관리평면 외 외부 exfil 차단)"
+  type        = string
+}
+
 variable "databases" {
-  description = "이 클러스터에 들어갈 논리 DB (서비스) 목록 — scripts/bootstrap-db.sh가 생성"
+  description = "이 클러스터에 들어갈 논리 DB (서비스) 목록 — scripts/bootstrap-db.sh가 생성합니다."
   type        = list(string)
 }
 
@@ -47,7 +52,7 @@ variable "instance_count" {
 }
 
 variable "serverless_min_acu" {
-  description = "Serverless v2 최소 ACU (인스턴스당, 유휴 시 과금 기준). instance_class = db.serverless 일 때만 적용"
+  description = "Serverless v2 최소 ACU (인스턴스당, 유휴 시 과금 기준). instance_class = db.serverless 일 때만 적용됩니다."
   type        = number
   default     = 0.5
 
@@ -58,7 +63,7 @@ variable "serverless_min_acu" {
 }
 
 variable "serverless_max_acu" {
-  description = "Serverless v2 최대 ACU (인스턴스당). instance_class = db.serverless 일 때만 적용"
+  description = "Serverless v2 최대 ACU (인스턴스당). instance_class = db.serverless 일 때만 적용됩니다."
   type        = number
   default     = 4
 }
@@ -70,13 +75,13 @@ variable "backup_retention_period" {
 }
 
 variable "skip_final_snapshot" {
-  description = "삭제 시 최종 스냅샷 생략 여부 (실 운영 전환 시 false 권장)"
+  description = "삭제 시 최종 스냅샷 생략 여부 (실 운영 전환 시 false를 권장합니다)"
   type        = bool
   default     = true
 }
 
 variable "deletion_protection" {
-  description = "삭제 방지 (실 운영 전환 시 true 권장)"
+  description = "삭제 방지 (실 운영 전환 시 true를 권장합니다)"
   type        = bool
   default     = false
 }
@@ -85,4 +90,10 @@ variable "parameter_group_family" {
   description = "클러스터 파라미터그룹 family (engine_version 메이저에 맞춤)"
   type        = string
   default     = "aurora-mysql8.0"
+}
+
+variable "log_retention_in_days" {
+  description = "CloudWatch Logs export (audit/error/slowquery) 보관 일수"
+  type        = number
+  default     = 30
 }

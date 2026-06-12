@@ -37,7 +37,7 @@ variable "vpc_config" {
   description = "VPC 결정값 (NAT 전략, NAT 장애 시 재배치 AZ)"
   type = object({
     nat_gateway_strategy = string           # none | single | per_az
-    single_nat_az        = optional(string) # single 전략에서 NAT AZ 장애 시 다른 AZ로 바꿔 apply (복구 ~5분)
+    single_nat_az        = optional(string) # single 전략에서 NAT AZ 장애 시 다른 AZ로 바꿔 apply하면 복구됩니다 (약 5분).
   })
 }
 
@@ -71,8 +71,8 @@ variable "eks_config" {
     desired_size                 = number
     min_size                     = number
     max_size                     = number
-    endpoint_public_access       = optional(bool, false)      # 기본 private-only (kubectl은 make kubeconfig-*, 끊기면 AWS 콘솔). true면 아래 cidrs 필수
-    endpoint_public_access_cidrs = optional(list(string), []) # public 활성 시 허용 CIDR — 비우면 precondition이 막음 (빈 리스트 = 0.0.0.0/0)
+    endpoint_public_access       = optional(bool, false)      # 기본은 private-only입니다 (kubectl은 make kubeconfig-*, 끊기면 AWS 콘솔). true면 아래 cidrs가 필수입니다.
+    endpoint_public_access_cidrs = optional(list(string), []) # public 활성 시 허용 CIDR입니다. 비우면 precondition이 막습니다 (빈 리스트 = 0.0.0.0/0).
   })
 }
 
@@ -89,8 +89,8 @@ variable "aurora_config" {
     serverless_min_acu      = optional(number, 0.5) # Serverless v2 최소 ACU (인스턴스당, 유휴 과금 기준)
     serverless_max_acu      = optional(number, 4)   # Serverless v2 최대 ACU (인스턴스당)
     backup_retention_period = optional(number, 1)
-    deletion_protection     = optional(bool, false) # 운영 전환 시 true — destroy/콘솔 실수 삭제 차단
-    skip_final_snapshot     = optional(bool, true)  # 운영 전환 시 false — 삭제 시 최종 스냅샷 보존
+    deletion_protection     = optional(bool, false) # 운영 전환 시 true로 두어 destroy·콘솔 실수 삭제를 차단합니다.
+    skip_final_snapshot     = optional(bool, true)  # 운영 전환 시 false로 두어 삭제 시 최종 스냅샷을 보존합니다.
   })
 }
 
@@ -154,8 +154,8 @@ variable "vpn_onprem_cidrs" {
 }
 
 # --- 온프렘 Harbor/ArgoCD 연동 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
-# enabled=false면 연동 리소스를 만들지 않는다 (EKS도 기존대로 private 컨트롤플레인 유지).
-# 대칭 은닉: private/db는 on-prem에 광고·노출 0, on-prem엔 mgmt/.253 단일 소스로만 보인다.
+# enabled=false면 연동 리소스를 만들지 않습니다 (EKS도 기존대로 private 컨트롤플레인을 유지).
+# 대칭 은닉: private/db는 on-prem에 광고·노출하지 않으며, on-prem에는 mgmt/.253 단일 소스로만 보입니다.
 variable "onprem_integration" {
   description = "온프렘 Harbor (이미지 Pull)·ArgoCD(EKS 배포) 연동 설정"
   type = object({
@@ -170,9 +170,9 @@ variable "onprem_integration" {
   default = {}
 }
 
-# document-service IRSA가 접근할 자원 이름 — 동일계정 가정(ARN은 caller identity로 동적 구성).
-# 외부(app/AI팀) 소유 자원이라 external.auto.tfvars(외부 입력)로 주입 — prod 자원 확정 후 채움.
-# null(기본)이면 document_irsa 모듈을 만들지 않는다 — 코드만 반영, 값 채우기 전엔 비활성(prod apply 안 막음).
+# document-service IRSA가 접근할 자원 이름입니다. 동일 계정을 가정하므로 ARN은 caller identity로 동적 구성합니다.
+# 외부 (app/AI팀) 소유 자원이라 external.auto.tfvars (외부 입력) 로 주입하며, prod 자원이 확정되면 채웁니다.
+# null (기본) 이면 document_irsa 모듈을 만들지 않습니다 (코드만 반영). 값을 채우기 전에는 비활성이라 prod apply를 막지 않습니다.
 variable "document_irsa" {
   description = "document-service IRSA 대상 자원 이름 (analysis SQS 큐 / 문서 S3 버킷 / 챗봇 Lambda). null이면 미생성"
   type = object({
@@ -181,4 +181,11 @@ variable "document_irsa" {
     chatbot_function_name = string
   })
   default = null
+}
+
+# community-service가 호출하는 번역 Lambda 함수 이름입니다. 외부 (AI팀) 소유이며, null이면 community_access를 만들지 않습니다 (코드만 반영).
+variable "community_translator_function" {
+  description = "community 번역 Lambda 함수 이름 (gb-community-translator). Pod Identity 정책 Resource ARN 구성용. null이면 미생성"
+  type        = string
+  default     = null
 }

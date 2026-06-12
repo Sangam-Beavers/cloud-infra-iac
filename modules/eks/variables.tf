@@ -15,7 +15,7 @@ variable "subnet_ids" {
 }
 
 variable "control_plane_subnet_ids" {
-  description = "컨트롤플레인 (API 엔드포인트) ENI를 둘 서브넷 — 비우면 subnet_ids와 동일. on-prem ArgoCD가 API에 닿아야 하면 mgmt 서브넷을 넘겨 private를 광고 없이 숨긴다. 최소 2 AZ."
+  description = "컨트롤플레인 (API 엔드포인트) ENI를 둘 서브넷 — 비우면 subnet_ids와 동일합니다. on-prem ArgoCD가 API에 닿아야 하면 mgmt 서브넷을 넘겨 private를 광고 없이 숨깁니다. 최소 2 AZ."
   type        = list(string)
   default     = []
 }
@@ -32,13 +32,13 @@ variable "api_allowed_cidrs" {
 }
 
 variable "endpoint_public_access" {
-  description = "퍼블릭 API 엔드포인트 활성화 여부. 기본 false(fail-safe, private-only) — 퍼블릭이 필요한 환경에서만 명시적으로 켜고 CIDR로 좁힐 것"
+  description = "퍼블릭 API 엔드포인트 활성화 여부. 기본 false(fail-safe, private-only) — 퍼블릭이 필요한 환경에서만 명시적으로 켜고 CIDR로 좁혀야 합니다"
   type        = bool
   default     = false
 }
 
 variable "endpoint_public_access_cidrs" {
-  description = "퍼블릭 API 엔드포인트 접근 허용 CIDR. 주의: 퍼블릭 활성 시 빈 리스트는 0.0.0.0/0 (전체 허용)이 된다 — 퍼블릭을 켜면 사무실/VPN IP로 반드시 좁힐 것 (모듈 precondition이 빈 리스트+public을 차단)"
+  description = "퍼블릭 API 엔드포인트 접근 허용 CIDR. 주의: 퍼블릭 활성 시 빈 리스트는 0.0.0.0/0 (전체 허용)이 됩니다 — 퍼블릭을 켜면 사무실/VPN IP로 반드시 좁혀야 합니다 (모듈 precondition이 빈 리스트+public을 차단)"
   type        = list(string)
   default     = []
 }
@@ -84,7 +84,7 @@ variable "instance_extra_tags" {
 }
 
 variable "desired_size" {
-  description = "노드 희망 수 (개수). 오토스케일러 도입 시 main.tf의 lifecycle ignore_changes를 복원해 Terraform이 되돌리지 않게 할 것"
+  description = "노드 희망 수 (개수). 오토스케일러 도입 시 main.tf의 lifecycle ignore_changes를 복원해 Terraform이 되돌리지 않게 해야 합니다"
   type        = number
 }
 
@@ -99,14 +99,18 @@ variable "max_size" {
 }
 
 variable "eso_secret_prefix" {
-  description = "External Secrets가 읽을 Secrets Manager 비밀 접두사 (환경 격리, 예: sb/stage/)"
+  description = "External Secrets가 읽을 Secrets Manager 비밀 접두사 (환경 격리, 예: sb/stage/) — 환경별로 반드시 지정 (default 없음: 누락 시 전 환경 비밀 노출 방지)"
   type        = string
-  default     = "sb/"
+
+  validation {
+    condition     = var.eso_secret_prefix != "sb/" && endswith(var.eso_secret_prefix, "/")
+    error_message = "eso_secret_prefix는 환경 세그먼트를 포함해야 합니다 (예: sb/stage/). 'sb/' 단독은 환경 격리를 깨므로 금지합니다."
+  }
 }
 
 # --- on-prem ArgoCD용 access entry ---
 variable "argocd_enabled" {
-  description = "ArgoCD access entry 생성 여부 — count 게이트. principal ARN은 모듈이 만드는 IAM User의 apply 시점 값이라 count로 못 쓰므로, plan 시점에 아는 bool (onprem_integration.enabled)로 고정한다"
+  description = "ArgoCD access entry 생성 여부 — count 게이트. principal ARN은 모듈이 만드는 IAM User의 apply 시점 값이라 count로 못 쓰므로, plan 시점에 아는 bool (onprem_integration.enabled)로 고정합니다"
   type        = bool
   default     = false
 }
@@ -124,7 +128,7 @@ variable "argocd_access_policy_arn" {
 }
 
 variable "argocd_access_namespaces" {
-  description = "ArgoCD access policy를 한정할 네임스페이스 목록 (비우면 cluster 범위). least-privilege로 배포 대상 네임스페이스만 권장"
+  description = "ArgoCD access policy를 한정할 네임스페이스 목록 (비우면 cluster 범위). least-privilege로 배포 대상 네임스페이스만 두길 권장합니다"
   type        = list(string)
   default     = []
 }
@@ -136,7 +140,7 @@ variable "cluster_admin_enabled" {
 }
 
 variable "cluster_admin_role_arn" {
-  description = "팀 공유 cluster-admin 역할 ARN — ClusterAdmin access entry로 매핑. 이 역할을 assume할 수 있는 사람(예: AdministratorAccess 그룹)이 kubectl admin이 된다"
+  description = "팀 공유 cluster-admin 역할 ARN — ClusterAdmin access entry로 매핑. 이 역할을 assume할 수 있는 사람 (예: AdministratorAccess 그룹)이 kubectl admin이 됩니다"
   type        = string
   default     = ""
 }

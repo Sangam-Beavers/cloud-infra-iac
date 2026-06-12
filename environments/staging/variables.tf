@@ -22,7 +22,7 @@ variable "aws_region" {
 }
 
 variable "aws_profile" {
-  description = "AWS CLI 프로필 = 배포 대상 계정. make의 TF_VAR_aws_profile로 주입 (default 없음 — 미설정 시 에러로 개인계정 폴백 차단)"
+  description = "AWS CLI 프로필 = 배포 대상 계정. make의 TF_VAR_aws_profile로 주입 (default 없음 — 미설정 시 에러를 발생시켜 개인계정 폴백을 차단합니다)"
   type        = string
 }
 
@@ -31,7 +31,7 @@ variable "state_bucket" {
   type        = string
 }
 
-# --- 자원 사양/결정값 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
+# --- 자원 사양/결정값 (실값은 terraform.tfvars — 커밋되지 않으므로 example 참고) ---
 
 variable "vpc_config" {
   description = "VPC 결정값 (NAT 전략, NAT 장애 시 재배치 AZ)"
@@ -107,7 +107,7 @@ variable "api_gateway_config" {
   })
 }
 
-# --- 네트워크 설계 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
+# --- 네트워크 설계 (실값은 terraform.tfvars — 커밋되지 않으므로 example 참고) ---
 
 variable "network" {
   description = "VPC CIDR과 4계층 서브넷 설계 (AZ 접미사 → CIDR)"
@@ -120,7 +120,7 @@ variable "network" {
   })
 }
 
-# --- VPN 토폴로지 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
+# --- VPN 토폴로지 (실값은 terraform.tfvars — 커밋되지 않으므로 example 참고) ---
 
 variable "vpn_tunnels" {
   description = "WG 터널 정의: 인터페이스 이름 → {address, peer_ip, listen_port, peer_pubkey_ssm}"
@@ -147,9 +147,9 @@ variable "vpn_onprem_cidrs" {
   type        = list(string)
 }
 
-# --- 온프렘 Harbor/ArgoCD 연동 (실값은 terraform.tfvars — 커밋되지 않음, example 참고) ---
-# enabled=false면 연동 리소스를 만들지 않는다 (EKS도 기존대로 private 컨트롤플레인 유지).
-# 대칭 은닉: private/db는 on-prem에 광고·노출 0, on-prem엔 mgmt/.253 단일 소스로만 보인다.
+# --- 온프렘 Harbor/ArgoCD 연동 (실값은 terraform.tfvars — 커밋되지 않으므로 example 참고) ---
+# enabled=false면 연동 리소스를 만들지 않습니다 (EKS도 기존대로 private 컨트롤플레인을 유지).
+# 대칭 은닉을 적용합니다: private·db는 on-prem에 광고·노출이 전혀 없고, on-prem에는 mgmt/.253 단일 소스로만 보입니다.
 variable "onprem_integration" {
   description = "온프렘 Harbor (이미지 Pull)·ArgoCD(EKS 배포) 연동 설정"
   type = object({
@@ -164,8 +164,8 @@ variable "onprem_integration" {
   default = {}
 }
 
-# document-service IRSA가 접근할 자원 이름 — 동일계정 가정(ARN은 caller identity로 동적 구성).
-# 외부(app/AI팀) 소유 자원이라 external.auto.tfvars(외부 입력)로 주입 — terraform.tfvars(인프라 정의)와 분리.
+# document-service IRSA가 접근할 자원 이름입니다. 동일계정을 가정하므로 ARN은 caller identity로 동적 구성합니다.
+# 외부 (app/AI팀) 소유 자원이라 external.auto.tfvars (외부 입력)로 주입해 terraform.tfvars (인프라 정의)와 분리합니다.
 variable "document_irsa" {
   description = "document-service IRSA 대상 자원 이름 (analysis SQS 큐 / 문서 S3 버킷 / 챗봇 Lambda)"
   type = object({
@@ -173,4 +173,10 @@ variable "document_irsa" {
     document_bucket       = string
     chatbot_function_name = string
   })
+}
+
+# community-service가 호출하는 번역 Lambda 함수 이름입니다. 외부 (AI팀) 소유이며 external.auto.tfvars로 주입합니다 (동일계정, ARN은 caller identity로 구성).
+variable "community_translator_function" {
+  description = "community 번역 Lambda 함수 이름 (gb-community-translator). Pod Identity 정책 Resource ARN 구성용"
+  type        = string
 }

@@ -25,14 +25,18 @@ variable "instance_type" {
 }
 
 variable "kms_key_arn" {
-  description = "환경 CMK ARN — DB 부트스트랩 시 Secrets Manager 비밀 암복호화에 필요"
+  description = "환경 CMK ARN — DB 부트스트랩 시 Secrets Manager 비밀 암복호화에 사용합니다"
   type        = string
 }
 
 variable "secret_prefix" {
-  description = "점프 호스트가 생성/조회할 수 있는 Secrets Manager 비밀 접두사"
+  description = "점프 호스트가 생성/조회할 수 있는 Secrets Manager 비밀 접두사 (환경 격리, 예: sb/stage/) — 환경별로 반드시 지정 (default 없음: 누락 시 전 환경 비밀 노출 방지)"
   type        = string
-  default     = "sb/"
+
+  validation {
+    condition     = var.secret_prefix != "sb/" && endswith(var.secret_prefix, "/")
+    error_message = "secret_prefix는 환경 세그먼트를 포함해야 합니다 (예: sb/stage/). 'sb/' 단독은 환경 격리를 깨므로 금지합니다."
+  }
 }
 
 variable "instance_extra_tags" {
