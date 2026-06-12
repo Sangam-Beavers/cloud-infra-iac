@@ -131,12 +131,35 @@ module "vpn" {
 }
 
 # 온프렘 ArgoCD가 EKS API에 인증할 전용 IAM User (연동 시에만). 출력 ARN을 eks access
-# entry에 매핑하고, 액세스 키는 onprem-handoff가 secrets/.argocd-<env>-cluster.yaml로 넘긴다.
+# entry에 매핑하고, 액세스 키는 onprem-handoff가 exports/argocd-<env>-cluster.yaml로 넘긴다.
 module "argocd_iam" {
   source = "../../modules/argocd-iam"
   count  = local.onprem_enabled ? 1 : 0
 
   name = "sb-prod-argocd"
+}
+
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+
+# 팀 공유 EKS admin 역할 — 계정 내 admin이 assume → EKS access entry로 kubectl ClusterAdmin.
+# 신뢰=계정 루트(동적) + MFA 강제. 그룹 멤버십으로 접근 제어, 계정 ID 하드코딩 0, 권한 정책 불필요(authz는 access entry).
+resource "aws_iam_role" "eks_admin" {
+  name = "sb-prod-eks-admin"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "sts:AssumeRole"
+      Condition = {
+        Bool = { "aws:MultiFactorAuthPresent" = "true" }
+      }
+    }]
+  })
+
+  tags = { Name = "sb-prod-eks-admin" }
 }
 
 module "eks" {
@@ -170,6 +193,10 @@ module "eks" {
   argocd_enabled           = local.onprem_enabled
   argocd_principal_arn     = local.onprem_enabled ? module.argocd_iam[0].principal_arn : ""
   argocd_access_namespaces = var.onprem_integration.argocd_namespaces
+
+  # 팀 공유 cluster-admin 역할(sb-prod-eks-admin) → ClusterAdmin access entry. kubeconfig-prod가 assume.
+  cluster_admin_enabled  = true
+  cluster_admin_role_arn = aws_iam_role.eks_admin.arn
 
   min_size = var.eks_config.min_size
   max_size = var.eks_config.max_size
@@ -312,11 +339,29 @@ module "cognito" {
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_issuer_url   = module.eks.oidc_issuer_url
 
-  # member 파드 SA — 앱 Deployment의 ServiceAccount와 정확히 일치해야 함 (앱팀과 확정)
+  # member 파드 SA — 앱 Deployment의 ServiceAccount와 정확히 일치해야 함
   member_service_account = { namespace = "sb-prod-app-ns", name = "member" }
 
   member_ssm_prefix   = "/sb/prod/member"   # issuer/region/pool-id → ESO 런타임
   frontend_ssm_prefix = "/sb/prod/frontend" # VITE_OIDC_* → Jenkins 빌드 타임
+}
+
+# document-service IRSA. SQS/S3/Lambda. 대상 자원은 var.document_irsa(external.auto.tfvars) 주입.
+# prod 배포 시 production/external.auto.tfvars에 document_irsa 값을 채운다(미정이면 prod apply 전 확정).
+module "document_irsa" {
+  source = "../../modules/document-irsa"
+  count  = var.document_irsa != null ? 1 : 0 # 값(tfvars) 채우기 전엔 미생성
+
+  name              = "sb-prod-document"
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_issuer_url   = module.eks.oidc_issuer_url
+
+  # 앱 Deployment의 serviceAccountName과 글자까지 일치 (gb-infra document 차트: name=document)
+  service_account = { namespace = "sb-prod-app-ns", name = "document" }
+
+  analysis_queue_name   = var.document_irsa.analysis_queue_name
+  document_bucket       = var.document_irsa.document_bucket
+  chatbot_function_name = var.document_irsa.chatbot_function_name
 }
 
 # 온프렘 Jenkins 프론트 배포용 IAM User (정적 키) — SPA 버킷 sync + 프론트 PS 읽기 + CloudFront 무효화.
@@ -344,10 +389,10 @@ resource "aws_ssm_parameter" "frontend_deploy_targets" {
   tags = { Name = "sb-prod-frontend-${each.key}" }
 }
 
-# apply 시 Jenkins 배포 자격증명을 secrets/.frontend-deploy-prod 에 자동 기록
-# (.eks-cp-<env>-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
+# apply 시 Jenkins 배포 자격증명을 exports/frontend-deploy-prod 에 자동 기록
+# (exports/eks-cp-<env>-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
 resource "local_sensitive_file" "frontend_deploy_handoff" {
-  filename        = "${path.root}/../../secrets/.frontend-deploy-prod"
+  filename        = "${path.root}/../../exports/frontend-deploy-prod"
   file_permission = "0600"
 
   content = join("\n", [
@@ -362,13 +407,13 @@ resource "local_sensitive_file" "frontend_deploy_handoff" {
   ])
 }
 
-# 온프렘 ArgoCD cluster Secret — apply 시 자동 기록·destroy 시 자동 삭제 (.frontend-deploy와 동일 패턴).
+# 온프렘 ArgoCD cluster Secret — apply 시 자동 기록·destroy 시 자동 삭제.
 # argocd-iam 키 등 민감값을 담아 terraform이 라이프사이클 관리 (스크립트 산출물처럼 잔재로 안 남음).
-# 온프렘 연동 시에만 생성. 적용: kubectl -n devops-system apply -f secrets/.argocd-prod-cluster.yaml
+# 온프렘 연동 시에만 생성. 적용: kubectl -n devops-system apply -f exports/argocd-prod-cluster.yaml
 resource "local_sensitive_file" "argocd_cluster_handoff" {
   count = local.onprem_enabled ? 1 : 0
 
-  filename        = "${path.root}/../../secrets/.argocd-prod-cluster.yaml"
+  filename        = "${path.root}/../../exports/argocd-prod-cluster.yaml"
   file_permission = "0600"
 
   content = yamlencode({

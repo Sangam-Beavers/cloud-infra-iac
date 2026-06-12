@@ -158,3 +158,14 @@ variable "onprem_integration" {
   })
   default = {}
 }
+
+# document-service IRSA가 접근할 자원 이름 — 동일계정 가정(ARN은 caller identity로 동적 구성).
+# 외부(app/AI팀) 소유 자원이라 external.auto.tfvars(외부 입력)로 주입 — terraform.tfvars(인프라 정의)와 분리.
+variable "document_irsa" {
+  description = "document-service IRSA 대상 자원 이름 (analysis SQS 큐 / 문서 S3 버킷 / 챗봇 Lambda)"
+  type = object({
+    analysis_queue_name   = string
+    document_bucket       = string
+    chatbot_function_name = string
+  })
+}

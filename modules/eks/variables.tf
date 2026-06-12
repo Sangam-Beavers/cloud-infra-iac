@@ -128,3 +128,15 @@ variable "argocd_access_namespaces" {
   type        = list(string)
   default     = []
 }
+
+variable "cluster_admin_enabled" {
+  description = "팀 공유 cluster-admin access entry 생성 여부 — count 게이트. ARN은 apply 시점 값이라 count로 못 쓰므로 plan 시점 bool로 분리 (argocd_enabled와 동일 패턴)"
+  type        = bool
+  default     = false
+}
+
+variable "cluster_admin_role_arn" {
+  description = "팀 공유 cluster-admin 역할 ARN — ClusterAdmin access entry로 매핑. 이 역할을 assume할 수 있는 사람(예: AdministratorAccess 그룹)이 kubectl admin이 된다"
+  type        = string
+  default     = ""
+}

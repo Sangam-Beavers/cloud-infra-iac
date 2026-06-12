@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # 온프렘에서 후속 작업이 필요한 "배포 산출물"을 secrets/.* 파일로 기록한다.
-# (VPN EIP를 secrets/.wireguard-<env>-eip로 기록하는 vpn-eip 타겟과 같은 취지 —
+# (VPN EIP를 exports/wireguard-<env>-eip로 기록하는 vpn-eip 타겟과 같은 취지 —
 #  값만이 아니라 "온프렘에서 이 값으로 뭘 해야 하는지"를 주석으로 함께 남긴다.)
 #
 # 사용법: ./onprem-handoff.sh <prod|stage>
 # 생성물:
-#   secrets/.eks-cp-<env>-dns-ip           — pfSense DNS conditional forwarder 설정용
+#   exports/eks-cp-<env>-dns-ip           — pfSense DNS conditional forwarder 설정용
 # (ArgoCD cluster Secret .argocd-<env>-cluster.yaml 은 이제 terraform local_sensitive_file이 apply/destroy로 관리)
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -35,7 +35,7 @@ if [ -z "$HOST" ]; then
 fi
 
 mkdir -p secrets
-OUT="secrets/.eks-cp-${ENV}-dns-ip"
+OUT="exports/eks-cp-${ENV}-dns-ip"
 
 # 환경별 파일 — 매번 덮어쓰기 (prefix 공존 없음)
 cat > "$OUT" <<HDR

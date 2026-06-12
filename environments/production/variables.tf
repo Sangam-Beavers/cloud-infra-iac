@@ -164,3 +164,16 @@ variable "onprem_integration" {
   })
   default = {}
 }
+
+# document-service IRSA가 접근할 자원 이름 — 동일계정 가정(ARN은 caller identity로 동적 구성).
+# 외부(app/AI팀) 소유 자원이라 external.auto.tfvars(외부 입력)로 주입 — prod 자원 확정 후 채움.
+# null(기본)이면 document_irsa 모듈을 만들지 않는다 — 코드만 반영, 값 채우기 전엔 비활성(prod apply 안 막음).
+variable "document_irsa" {
+  description = "document-service IRSA 대상 자원 이름 (analysis SQS 큐 / 문서 S3 버킷 / 챗봇 Lambda). null이면 미생성"
+  type = object({
+    analysis_queue_name   = string
+    document_bucket       = string
+    chatbot_function_name = string
+  })
+  default = null
+}

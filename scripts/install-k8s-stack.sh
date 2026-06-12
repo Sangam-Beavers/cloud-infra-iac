@@ -170,6 +170,17 @@ ensure_app_namespaces() {
     [ -n "$argo_arn" ] && ns="$ns" argo_arn="$argo_arn" \
       envsubst '${ns} ${argo_arn}' < "$MF/argocd-namespace-rbac.yaml" | kubectl apply -f -
   done
+  # member-service Cognito IRSA — SA 'member'(앱 ns)이 cognito 관리 역할(AdminCreateUser 등)을 assume한다.
+  # 차트 Deployment의 serviceAccountName: member 와 일치해야 함(stage). 역할 ARN은 cognito 모듈 출력(없으면 생략).
+  local cognito_arn m_ns
+  cognito_arn=$(cd "$TF_DIR" && terraform output -raw cognito_member_role_arn 2>/dev/null || true)
+  if [ -n "$cognito_arn" ]; then
+    m_ns="${ns_csv%%,*}"
+    kubectl -n "$m_ns" create serviceaccount member --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n "$m_ns" annotate serviceaccount member \
+      eks.amazonaws.com/role-arn="$cognito_arn" --overwrite
+    echo "[✔] member SA IRSA ($m_ns/member → cognito 관리 역할)"
+  fi
 }
 
 install_harbor() {

@@ -134,7 +134,7 @@ output "resolver_inbound_ips" {
   value       = try(module.route53_resolver[0].inbound_endpoint_ip_addresses, [])
 }
 
-# --- 온프렘 ArgoCD 핸드오프 (onprem-handoff.sh가 secrets/.argocd-<env>-cluster.yaml로 기록) ---
+# --- 온프렘 ArgoCD 핸드오프 (onprem-handoff.sh가 exports/argocd-<env>-cluster.yaml로 기록) ---
 output "eks_cluster_ca" {
   description = "EKS 클러스터 CA (base64) — ArgoCD cluster Secret의 tlsClientConfig.caData"
   value       = module.eks.cluster_certificate_authority_data
@@ -185,6 +185,16 @@ output "cognito_hosted_ui_domain" {
 output "cognito_member_role_arn" {
   description = "member-service IRSA 역할 ARN (SA annotation용)"
   value       = module.cognito.member_role_arn
+}
+
+output "document_irsa_role_arn" {
+  description = "document-service IRSA 역할 ARN (var.document_irsa 설정 시; gb-infra document values-prod.yaml serviceAccount.roleArn에 기입)"
+  value       = try(module.document_irsa[0].role_arn, null)
+}
+
+output "eks_admin_role_arn" {
+  description = "팀 공유 EKS cluster-admin 역할 ARN — make kubeconfig-prod가 --role-arn으로 assume (admin 그룹 멤버면 ClusterAdmin, MFA 필요)"
+  value       = aws_iam_role.eks_admin.arn
 }
 
 # --- 온프렘 Jenkins 프론트 배포 IAM (정적 키 → Jenkins credential) ---

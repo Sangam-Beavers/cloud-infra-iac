@@ -301,3 +301,34 @@ resource "aws_eks_access_policy_association" "argocd" {
 
   depends_on = [aws_eks_access_entry.argocd]
 }
+
+# ---------------------------------------------------------------------------
+# 팀 공유 cluster-admin access entry — cluster_admin_role_arn을 ClusterAdmin으로 매핑.
+# 그 역할을 assume할 수 있는 사람(예: AdministratorAccess 그룹)이 make kubeconfig-stage(--role-arn)로
+# kubectl admin이 된다. 접근 제어는 '역할 assume 가능 여부'(=그룹 멤버십)로 — IaC 변경 없이 가입/탈퇴.
+# ---------------------------------------------------------------------------
+resource "aws_eks_access_entry" "cluster_admin" {
+  count = var.cluster_admin_enabled ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.cluster_admin_role_arn
+  type          = "STANDARD"
+
+  tags = {
+    Name = "${var.name}-cluster-admin"
+  }
+}
+
+resource "aws_eks_access_policy_association" "cluster_admin" {
+  count = var.cluster_admin_enabled ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.cluster_admin_role_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.cluster_admin]
+}

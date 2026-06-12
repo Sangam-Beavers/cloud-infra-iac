@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Terraform S3 백엔드 버킷을 "발견 또는 생성"하고, 그 이름을 캐시 파일에 기록한다.
-# Makefile은 이 캐시 (secrets/.state-bucket-<profile>)를 읽어 STATE_BUCKET으로 쓴다.
+# Makefile은 이 캐시 (exports/state-bucket-<profile>)를 읽어 STATE_BUCKET으로 쓴다.
 # → 사용자는 버킷명을 정할 필요가 없다 (PROFILE만 바꾸면 계정별로 자동).
 #
 #   · 계정에 global-bridge-tfstate* 버킷이 이미 있으면 그걸 재사용 (마이그레이션 불필요).
@@ -14,7 +14,8 @@ set -euo pipefail
 
 PROFILE="${1:-${PROFILE:?PROFILE 미설정 — make 경유 또는 인자/env로 전달}}"
 REGION="${REGION:-ap-northeast-2}"
-CACHE="secrets/.state-bucket-${PROFILE}"
+CACHE="exports/state-bucket-${PROFILE}"
+mkdir -p exports # 생성물 폴더 (gitkeep로 추적되나, 수동 삭제 대비 방어적 생성)
 
 # 1) 계정 내 기존 state 버킷 발견 (있으면 재사용)
 BUCKET=$(aws s3api list-buckets --profile "$PROFILE" \

@@ -128,12 +128,39 @@ module "vpn" {
 }
 
 # 온프렘 ArgoCD가 EKS API에 인증할 전용 IAM User (연동 시에만). 출력 ARN을 eks access
-# entry에 매핑하고, 액세스 키는 onprem-handoff가 secrets/.argocd-<env>-cluster.yaml로 넘긴다.
+# entry에 매핑하고, 액세스 키는 onprem-handoff가 exports/argocd-<env>-cluster.yaml로 넘긴다.
 module "argocd_iam" {
   source = "../../modules/argocd-iam"
   count  = local.onprem_enabled ? 1 : 0
 
   name = "sb-stage-argocd"
+}
+
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+
+# 팀 공유 EKS admin 역할 — 1000-leaders(AdministratorAccess) 등 계정 내 admin이 assume → EKS access entry로
+# kubectl ClusterAdmin. 신뢰는 계정 루트(동적): assume 권한(sts:AssumeRole)을 가진 자만 = admin 그룹 멤버.
+# 그룹 가입/탈퇴로 접근을 제어하고(IaC 변경 불필요), 계정 ID는 하드코딩하지 않는다(퍼블릭 안전).
+# 권한 정책은 두지 않는다 — kubectl 인가는 EKS access entry가 담당(역할 자체엔 AWS 권한 불필요).
+# MFA 강제: ClusterAdmin 전권이라 assume 시 MFA 필수(aws:MultiFactorAuthPresent). 팀원은 프로필에
+# mfa_serial을 설정해 최초 1회 MFA 인증 → CLI가 세션 자격증명을 캐시하므로 kubectl(get-token)은 재프롬프트 없이 동작.
+resource "aws_iam_role" "eks_admin" {
+  name = "sb-stage-eks-admin"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "sts:AssumeRole"
+      Condition = {
+        Bool = { "aws:MultiFactorAuthPresent" = "true" }
+      }
+    }]
+  })
+
+  tags = { Name = "sb-stage-eks-admin" }
 }
 
 module "eks" {
@@ -166,6 +193,10 @@ module "eks" {
   argocd_enabled           = local.onprem_enabled
   argocd_principal_arn     = local.onprem_enabled ? module.argocd_iam[0].principal_arn : ""
   argocd_access_namespaces = var.onprem_integration.argocd_namespaces
+
+  # 팀 공유 cluster-admin 역할(sb-stage-eks-admin) → ClusterAdmin access entry. make kubeconfig-stage가 assume.
+  cluster_admin_enabled  = true
+  cluster_admin_role_arn = aws_iam_role.eks_admin.arn
 
   min_size = var.eks_config.min_size
   max_size = var.eks_config.max_size
@@ -306,11 +337,28 @@ module "cognito" {
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_issuer_url   = module.eks.oidc_issuer_url
 
-  # member 파드 SA — 앱 Deployment의 ServiceAccount와 정확히 일치해야 함 (앱팀과 확정)
+  # member 파드 SA — 앱 Deployment의 ServiceAccount와 정확히 일치해야 함
   member_service_account = { namespace = "sb-stage-app-ns", name = "member" }
 
   member_ssm_prefix   = "/sb/stage/member"   # issuer/region/pool-id → ESO 런타임
   frontend_ssm_prefix = "/sb/stage/frontend" # VITE_OIDC_* → Jenkins 빌드 타임
+}
+
+# document-service IRSA — member 패턴(우리 EKS OIDC 동적 참조). SQS consume + S3 presign + Lambda 호출.
+# 대상 SQS/S3/Lambda는 모두 동일계정(이 배포 계정)·IaC 범위 밖(app/AI팀 소유) — 권한만 부여.
+module "document_irsa" {
+  source = "../../modules/document-irsa"
+
+  name              = "sb-stage-document"
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_issuer_url   = module.eks.oidc_issuer_url
+
+  # 앱 Deployment의 serviceAccountName과 글자까지 일치 (gb-infra document 차트: name=document)
+  service_account = { namespace = "sb-stage-app-ns", name = "document" }
+
+  analysis_queue_name   = var.document_irsa.analysis_queue_name
+  document_bucket       = var.document_irsa.document_bucket
+  chatbot_function_name = var.document_irsa.chatbot_function_name
 }
 
 # 온프렘 Jenkins 프론트 배포용 IAM User (정적 키) — SPA 버킷 sync + 프론트 PS 읽기 + CloudFront 무효화.
@@ -338,10 +386,10 @@ resource "aws_ssm_parameter" "frontend_deploy_targets" {
   tags = { Name = "sb-stage-frontend-${each.key}" }
 }
 
-# apply 시 Jenkins 배포 자격증명·대상을 secrets/.frontend-deploy-stage 에 자동 기록
-# (.eks-cp-<env>-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
+# apply 시 Jenkins 배포 자격증명·대상을 exports/frontend-deploy-stage 에 자동 기록
+# (exports/eks-cp-<env>-dns-ip 등 다른 핸드오프와 같은 형식 — gitignored, 600).
 resource "local_sensitive_file" "frontend_deploy_handoff" {
-  filename        = "${path.root}/../../secrets/.frontend-deploy-stage"
+  filename        = "${path.root}/../../exports/frontend-deploy-stage"
   file_permission = "0600"
 
   content = join("\n", [
@@ -356,13 +404,13 @@ resource "local_sensitive_file" "frontend_deploy_handoff" {
   ])
 }
 
-# 온프렘 ArgoCD cluster Secret — apply 시 자동 기록·destroy 시 자동 삭제 (.frontend-deploy와 동일 패턴).
+# 온프렘 ArgoCD cluster Secret — apply 시 자동 기록·destroy 시 자동 삭제.
 # argocd-iam 키 등 민감값을 담아 terraform이 라이프사이클 관리 (스크립트 산출물처럼 잔재로 안 남음).
-# 온프렘 연동 시에만 생성. 적용: kubectl -n devops-system apply -f secrets/.argocd-stage-cluster.yaml
+# 온프렘 연동 시에만 생성. 적용: kubectl -n devops-system apply -f exports/argocd-stage-cluster.yaml
 resource "local_sensitive_file" "argocd_cluster_handoff" {
   count = local.onprem_enabled ? 1 : 0
 
-  filename        = "${path.root}/../../secrets/.argocd-stage-cluster.yaml"
+  filename        = "${path.root}/../../exports/argocd-stage-cluster.yaml"
   file_permission = "0600"
 
   content = yamlencode({

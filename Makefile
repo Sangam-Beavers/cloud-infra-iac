@@ -19,14 +19,14 @@
 #   4. make bootstrap-prod bootstrap-stage
 #        # Valkey AUTH (ROTATE→SET) + 논리 DB/서비스 계정/비밀 — 점프 호스트 SSM 원격 실행
 #   5. make vpn-prod vpn-stage
-#        # (통합) WG 키 SSM 등록 → 라우터 재기동 (키 반영) → 고정 EIP를 secrets/.wireguard-{env}-eip 기록
+#        # (통합) WG 키 SSM 등록 → 라우터 재기동 (키 반영) → 고정 EIP를 exports/wireguard-{env}-eip 기록
 #   6. make onprem-handoff-prod onprem-handoff-stage
-#        # (온프렘 연동 시) EKS endpoint·resolver inbound IP를 secrets/.eks-cp-{env}-dns-ip 기록
+#        # (온프렘 연동 시) EKS endpoint·resolver inbound IP를 exports/eks-cp-{env}-dns-ip 기록
 #
 # ── up-all 이후 온프렘 (pfSense) 수동 작업 — AWS 산출물을 온프렘에 반영 ──
-#   7. pfSense WireGuard Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 → 터널 성립
+#   7. pfSense WireGuard Peer Endpoint를 exports/wireguard-{env}-eip 의 EIP로 갱신 → 터널 성립
 #   8. (온프렘 연동 시) pfSense DNS Resolver/Forwarder에 EKS 도메인 conditional forward 추가
-#        # → secrets/.eks-cp-{env}-dns-ip 의 resolver inbound IP. 온프렘 ArgoCD가 호스트명으로 private EKS API 접근
+#        # → exports/eks-cp-{env}-dns-ip 의 resolver inbound IP. 온프렘 ArgoCD가 호스트명으로 private EKS API 접근
 #
 # ── 단일 env만: make up-prod / up-stage (생성), down-prod / down-stage (삭제 — application 스택은 보존) ──
 #
@@ -44,9 +44,9 @@ PROFILE ?= woori-fisa-1k
 REGION  ?= ap-northeast-2
 
 # STATE_BUCKET은 사용자가 정하지 않는다. create-state-bucket.sh가 계정의 기존 버킷을 발견 (or 생성)해
-# 캐시 (secrets/.state-bucket-<profile>)에 기록하고, make는 그 캐시를 읽는다 (cat — aws 호출 없음).
+# 캐시 (exports/state-bucket-<profile>)에 기록하고, make는 그 캐시를 읽는다 (cat — aws 호출 없음).
 # up-all/state-bucket이 캐시를 채우므로, 처음/계정전환 시엔 그게 먼저 돌아야 한다.
-STATE_BUCKET = $(shell tail -1 secrets/.state-bucket-$(PROFILE) 2>/dev/null)
+STATE_BUCKET = $(shell tail -1 exports/state-bucket-$(PROFILE) 2>/dev/null)
 
 # 엣지 커스텀 도메인 (prod 전용) — secrets/domain.env의 GB_PROD_DOMAIN을 읽는다 (없으면 빈 값 → 기본 *.cloudfront.net).
 EDGE_DOMAIN = $(shell grep -E '^GB_PROD_DOMAIN=' secrets/domain.env 2>/dev/null | tail -1 | cut -d= -f2-)
@@ -162,26 +162,28 @@ _vpn-restart: # 내부: VPN_TAGS (쉼표구분) 태그의 라우터 종료 → A
 	  --query "Reservations[].Instances[].InstanceId" --output text); \
 	  [ -n "$$IDS" ] && aws ec2 terminate-instances --profile $(PROFILE) --region $(REGION) --instance-ids $$IDS --query "TerminatingInstances[].InstanceId" --output text || echo "($(VPN_TAGS) 실행 인스턴스 없음)"
 
-vpn-eip: ## VPN 라우터 EIP를 secrets/.wireguard-{env}-eip에 기록 (배포된 env만 — pfSense Endpoint 설정용)
+vpn-eip: ## VPN 라우터 EIP를 exports/wireguard-{env}-eip에 기록 (배포된 env만 — pfSense Endpoint 설정용)
 	@mkdir -p secrets
-	@P=$$(cd $(PROD) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$P" ] && { printf '# === VPN 라우터 고정 EIP (prod) — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\nVPN_EIP=%s\n' "$$P" > secrets/.wireguard-prod-eip; cat secrets/.wireguard-prod-eip; } || true
-	@S=$$(cd $(STAGE) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$S" ] && { printf '# === VPN 라우터 고정 EIP (stage) — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\nVPN_EIP=%s\n' "$$S" > secrets/.wireguard-stage-eip; cat secrets/.wireguard-stage-eip; } || true
+	@P=$$(cd $(PROD) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$P" ] && { printf '# === VPN 라우터 고정 EIP (prod) — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\nVPN_EIP=%s\n' "$$P" > exports/wireguard-prod-eip; cat exports/wireguard-prod-eip; } || true
+	@S=$$(cd $(STAGE) && terraform output -raw vpn_eip 2>/dev/null); [ -n "$$S" ] && { printf '# === VPN 라우터 고정 EIP (stage) — 온프렘 pfSense WireGuard 설정 ===\n# 이 EIP를 pfSense의 WireGuard Peer Endpoint (상대 공인 IP)로 설정한다.\n# 라우터가 ASG로 교체돼도 user_data가 이 EIP를 재연결하므로 값은 고정이다.\nVPN_EIP=%s\n' "$$S" > exports/wireguard-stage-eip; cat exports/wireguard-stage-eip; } || true
 
 # ---------- 온프렘 핸드오프 (배포 산출물 → secrets/.*) ----------
-onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-cp-{env}-dns-ip, .argocd-cluster)
+onprem-handoff-prod: ## prod: 온프렘 작업 필요한 배포 산출물 기록 (exports/eks-cp-{env}-dns-ip, .argocd-cluster)
 	./scripts/onprem-handoff.sh prod
 
-onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (secrets/.eks-cp-{env}-dns-ip, .argocd-cluster)
+onprem-handoff-stage: ## stage: 온프렘 작업 필요한 배포 산출물 기록 (exports/eks-cp-{env}-dns-ip, .argocd-cluster)
 	./scripts/onprem-handoff.sh stage
 
 # ---------- 클러스터 접근 (kubeconfig — 직접 주소, 평소 사용) ----------
-kubeconfig-prod: ## prod EKS kubeconfig 설정 (온프렘/Tailscale 경유 직접 주소 — 터널 불필요). VPN 끊기면 AWS 콘솔 (Session Manager)로 break-glass
-	aws eks update-kubeconfig --name sb-prod-eks --region $(REGION) --profile $(PROFILE)
-	@kubectl get nodes --request-timeout=10s >/dev/null 2>&1 && echo "✔ EKS API 직접 연결 OK — kubectl 바로 사용" || echo "⚠ API 미도달 — pfSense DNS forwarder + Tailscale/VPN (mgmt 도달) 확인. break-glass: AWS 콘솔 → Session Manager → 점프 호스트"
+kubeconfig-prod: ## prod EKS kubeconfig 설정 (공유 admin 역할 sb-prod-eks-admin assume — admin 그룹이면 누구나 ClusterAdmin). VPN 끊기면 AWS 콘솔 (Session Manager)로 break-glass
+	@ACCOUNT=$$(aws sts get-caller-identity --profile $(PROFILE) --query Account --output text); \
+	aws eks update-kubeconfig --name sb-prod-eks --region $(REGION) --profile $(PROFILE) --role-arn arn:aws:iam::$$ACCOUNT:role/sb-prod-eks-admin
+	@kubectl get nodes --request-timeout=10s >/dev/null 2>&1 && echo "✔ EKS API 직접 연결 OK — kubectl 바로 사용 (ClusterAdmin)" || echo "⚠ API 미도달 — pfSense DNS forwarder + Tailscale/VPN (mgmt 도달) 확인. break-glass: AWS 콘솔 → Session Manager → 점프 호스트"
 
-kubeconfig-stage: ## stage EKS kubeconfig 설정 (온프렘/Tailscale 경유 직접 주소 — 터널 불필요). VPN 끊기면 AWS 콘솔 (Session Manager)로 break-glass
-	aws eks update-kubeconfig --name sb-stage-eks --region $(REGION) --profile $(PROFILE)
-	@kubectl get nodes --request-timeout=10s >/dev/null 2>&1 && echo "✔ EKS API 직접 연결 OK — kubectl 바로 사용" || echo "⚠ API 미도달 — pfSense DNS forwarder + Tailscale/VPN (mgmt 도달) 확인. break-glass: AWS 콘솔 → Session Manager → 점프 호스트"
+kubeconfig-stage: ## stage EKS kubeconfig 설정 (공유 admin 역할 sb-stage-eks-admin assume — admin 그룹이면 누구나 ClusterAdmin). VPN 끊기면 AWS 콘솔 (Session Manager)로 break-glass
+	@ACCOUNT=$$(aws sts get-caller-identity --profile $(PROFILE) --query Account --output text); \
+	aws eks update-kubeconfig --name sb-stage-eks --region $(REGION) --profile $(PROFILE) --role-arn arn:aws:iam::$$ACCOUNT:role/sb-stage-eks-admin
+	@kubectl get nodes --request-timeout=10s >/dev/null 2>&1 && echo "✔ EKS API 직접 연결 OK — kubectl 바로 사용 (ClusterAdmin)" || echo "⚠ API 미도달 — pfSense DNS forwarder + Tailscale/VPN (mgmt 도달) 확인. break-glass: AWS 콘솔 → Session Manager → 점프 호스트"
 
 # ---------- 환경별 전체 생성/삭제 (단일 env — up-all/down-all의 한쪽판, CONFIRM 필요) ----------
 up-prod: ## prod 전체 생성: app→apply→k8s→부트스트랩→VPN→handoff (~30분)
@@ -193,7 +195,7 @@ up-prod: ## prod 전체 생성: app→apply→k8s→부트스트랩→VPN→hand
 	$(MAKE) bootstrap-prod
 	$(MAKE) vpn-prod
 	$(MAKE) onprem-handoff-prod
-	@echo "✔ prod 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 (연동 시 secrets/.eks-cp-{env}-dns-ip 로 DNS forwarder도)"
+	@echo "✔ prod 생성 완료 — pfSense Peer Endpoint를 exports/wireguard-{env}-eip 의 EIP로 갱신 (연동 시 exports/eks-cp-{env}-dns-ip 로 DNS forwarder도)"
 
 up-stage: ## stage 전체 생성: app→apply→k8s→부트스트랩→VPN→handoff (~30분)
 	@printf "stage 전체를 생성합니다 (NAT/EKS/Aurora 과금 시작). helm/kubectl 필요. 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
@@ -204,7 +206,7 @@ up-stage: ## stage 전체 생성: app→apply→k8s→부트스트랩→VPN→ha
 	$(MAKE) bootstrap-stage
 	$(MAKE) vpn-stage
 	$(MAKE) onprem-handoff-stage
-	@echo "✔ stage 생성 완료 — pfSense Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 (연동 시 secrets/.eks-cp-{env}-dns-ip 로 DNS forwarder도)"
+	@echo "✔ stage 생성 완료 — pfSense Peer Endpoint를 exports/wireguard-{env}-eip 의 EIP로 갱신 (연동 시 exports/eks-cp-{env}-dns-ip 로 DNS forwarder도)"
 
 down-prod: ## prod 전체 삭제 (sb/prod/* 비밀·/sb/prod/* 파라미터 포함, application 스택은 보존)
 	@printf "⚠️  prod 전체를 삭제합니다 (복구 불가). application 스택은 유지 (stage와 공유). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]
@@ -251,8 +253,8 @@ up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부
 	$(MAKE) bootstrap-prod bootstrap-stage
 	@echo "--- VPN 셋업 (키 등록 + 라우터 재기동 + EIP) ---"
 	$(MAKE) vpn-prod vpn-stage
-	$(MAKE) onprem-handoff-prod onprem-handoff-stage # 연동 환경이면 secrets/.eks-cp-{env}-dns-ip 생성, 비연동이면 자동 생략
-	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 secrets/.wireguard-{env}-eip 의 EIP로 갱신 (연동 시 secrets/.eks-cp-{env}-dns-ip 로 DNS forwarder도)"
+	$(MAKE) onprem-handoff-prod onprem-handoff-stage # 연동 환경이면 exports/eks-cp-{env}-dns-ip 생성, 비연동이면 자동 생략
+	@echo "✔ 전체 생성 완료 — 다음 절차: pfSense Peer Endpoint를 exports/wireguard-{env}-eip 의 EIP로 갱신 (연동 시 exports/eks-cp-{env}-dns-ip 로 DNS forwarder도)"
 
 down-all: ## 전체 인프라 삭제: 비밀 정리→환경 병렬 destroy→application (복구 불가)
 	@printf "⚠️  전체 인프라를 삭제합니다 (복구 불가, CMK 삭제 대기 진입). 계속하려면 CONFIRM 입력: " && read ans && [ "$$ans" = "CONFIRM" ]

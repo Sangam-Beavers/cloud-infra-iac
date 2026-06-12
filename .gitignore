@@ -119,6 +119,10 @@ $RECYCLE.BIN/
 !*.env.example
 secrets/*
 !secrets/*.example
+# exports/: 배포 생성물 (state-bucket 캐시·온프렘 핸드오프·VPN EIP·local_sensitive_file — 일부 민감).
+# secrets/(외부 입력)와 분리. dir만 추적(.gitkeep), 내용은 전부 차단.
+exports/*
+!exports/.gitkeep
 # Lambda 빌드 산출물 (archive_file이 소스에서 재생성 — 커밋 불필요)
 modules/*/lambda/*.zip
 # Claude Code 세션 산출물 (스케줄 lock 등 — 프로젝트 무관)

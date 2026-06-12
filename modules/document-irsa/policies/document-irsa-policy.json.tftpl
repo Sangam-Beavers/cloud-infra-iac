@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConsumeAnalysisResultQueue",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "${queue_arn}"
+    },
+    {
+      "Sid": "DocumentBucketRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": ["${bucket_arn}/original/*", "${bucket_arn}/masked/*"]
+    },
+    {
+      "Sid": "DocumentBucketWrite",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "${bucket_arn}/original/*"
+    },
+    {
+      "Sid": "InvokeChatbotFunctionUrl",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunctionUrl",
+      "Resource": "${function_arn}",
+      "Condition": { "StringEquals": { "lambda:FunctionUrlAuthType": "AWS_IAM" } }
+    }
+  ]
+}
