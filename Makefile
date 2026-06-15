@@ -48,17 +48,24 @@ REGION  ?= ap-northeast-2
 # up-all과 state-bucket이 캐시를 채우므로, 최초 실행이나 계정 전환 시에는 그 타겟이 먼저 돌아야 합니다.
 STATE_BUCKET = $(shell tail -1 exports/state-bucket-$(PROFILE) 2>/dev/null)
 
-# 엣지 커스텀 도메인입니다 (prod 전용). secrets/domain.env의 GB_PROD_DOMAIN을 읽습니다 (없으면 빈 값이라 기본 *.cloudfront.net을 씁니다).
-EDGE_DOMAIN = $(shell grep -E '^GB_PROD_DOMAIN=' secrets/domain.env 2>/dev/null | tail -1 | cut -d= -f2-)
+# 엣지 커스텀 도메인입니다. secrets/domain.env에서 env별로 읽습니다 (없으면 빈 값이라 기본 *.cloudfront.net을 씁니다).
+#   stage → GB_STAGE_DOMAIN, prod → GB_PROD_DOMAIN. 아래 target-specific 변수로 TF_VAR_edge_domain에 주입합니다.
+EDGE_DOMAIN_STAGE = $(shell grep -E '^GB_STAGE_DOMAIN=' secrets/domain.env 2>/dev/null | tail -1 | cut -d= -f2-)
+EDGE_DOMAIN_PROD  = $(shell grep -E '^GB_PROD_DOMAIN='  secrets/domain.env 2>/dev/null | tail -1 | cut -d= -f2-)
 
 # terraform provider/remote_state는 TF_VAR_로 자동 주입됩니다. REGION은 tfvars의 aws_region이 소스이므로
 # export하지 않고 (우선순위 때문), 백엔드 region만 -backend-config로 맞춥니다. PROFILE/REGION은 스크립트가 env로 상속받습니다.
 # TF_VAR_state_bucket은 캐시를 늦게 읽도록 재귀 (=)로 둡니다 — state-bucket이 채운 뒤에 init이 읽도록 하기 위함입니다.
 export TF_VAR_aws_profile  := $(PROFILE)
 export TF_VAR_state_bucket  = $(STATE_BUCKET)
-export TF_VAR_edge_domain   = $(EDGE_DOMAIN)
+# 기본은 빈 값 (=기본 *.cloudfront.net). 아래 target-specific 변수가 env별 도메인을 주입합니다.
+export TF_VAR_edge_domain
 export PROFILE
 export REGION
+
+# 엣지 도메인 env별 주입 (stage→GB_STAGE_DOMAIN, prod→GB_PROD_DOMAIN). 해당 타깃 레시피에서만 TF_VAR_edge_domain을 덮어씁니다.
+plan-stage apply-stage destroy-stage up-stage down-stage: TF_VAR_edge_domain := $(EDGE_DOMAIN_STAGE)
+plan-prod apply-prod destroy-prod up-prod down-prod:       TF_VAR_edge_domain := $(EDGE_DOMAIN_PROD)
 
 # backend 블록은 변수를 쓸 수 없으므로 init 때 -backend-config로 주입합니다 (key는 각 backend.tf에 있습니다).
 # -reconfigure: 계정/버킷을 바꿔 init하면 새 백엔드를 가리키게 합니다 (state 이전이 아니라, 새 계정은 빈 상태에서 시작합니다).

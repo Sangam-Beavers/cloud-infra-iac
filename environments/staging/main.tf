@@ -15,6 +15,8 @@ locals {
   onprem_enabled  = var.onprem_integration.enabled
   # Harbor 경로와 SNAT는 목적지가 실제로 있을 때만 켭니다. 빈 목적지로 켜면 user_data가 깨지기 때문입니다.
   harbor_enabled = var.onprem_integration.enabled && length(var.onprem_integration.harbor_destinations) > 0
+  # 엣지 1차 호스트. 커스텀 도메인이 있으면 그 도메인을, 없으면 기본 *.cloudfront.net을 씁니다 (OAuth 콜백 등에 사용).
+  edge_primary_host = var.edge_domain != "" ? var.edge_domain : module.edge.cloudfront_domain_name
 }
 
 provider "aws" {
@@ -283,7 +285,7 @@ module "edge" {
   }
 
   name   = "sb-stage-edge"
-  domain = "" # stage는 기본 *.cloudfront.net (커스텀 도메인은 prod 전용)
+  domain = var.edge_domain # secrets/domain.env(GB_PROD_DOMAIN) → make가 TF_VAR_edge_domain로 주입. 비우면 기본 *.cloudfront.net
 
   waf_rate_limit = var.api_gateway_config.waf_rate_limit
 
@@ -332,8 +334,9 @@ module "cognito" {
   domain_prefix = "sb-stage-gb-auth"
 
   # 프론트 (../frontend) OIDC 설정과 일치시킵니다: redirect=/auth/callback, post-logout=/login.
-  callback_urls = ["https://${module.edge.cloudfront_domain_name}/auth/callback", "http://localhost:5173/auth/callback"]
-  logout_urls   = ["https://${module.edge.cloudfront_domain_name}/login", "http://localhost:5173/login"]
+  # 커스텀 도메인이 있으면 그 도메인을, 없으면 기본 *.cloudfront.net을 OAuth 콜백 호스트로 씁니다.
+  callback_urls = ["https://${local.edge_primary_host}/auth/callback", "http://localhost:5173/auth/callback"]
+  logout_urls   = ["https://${local.edge_primary_host}/login", "http://localhost:5173/login"]
 
   deletion_protection = "INACTIVE" # stage는 destroy 가능 (prod는 ACTIVE)
 

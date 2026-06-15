@@ -31,6 +31,12 @@ variable "state_bucket" {
   type        = string
 }
 
+variable "edge_domain" {
+  description = "엣지 커스텀 도메인 — make가 secrets/domain.env(GB_PROD_DOMAIN)에서 TF_VAR_edge_domain로 주입. 비우면 기본 *.cloudfront.net (지정 시 Route53 zone + ACM apex/와일드카드)"
+  type        = string
+  default     = ""
+}
+
 # --- 자원 사양/결정값 (실값은 terraform.tfvars — 커밋되지 않으므로 example 참고) ---
 
 variable "vpc_config" {
