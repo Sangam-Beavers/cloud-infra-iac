@@ -35,14 +35,9 @@ variable "deletion_protection" {
   }
 }
 
-# --- member-service IRSA (Cognito 관리 API 호출) ---
-variable "oidc_provider_arn" {
-  description = "EKS IRSA용 OIDC 프로바이더 ARN (module.eks.oidc_provider_arn)"
-  type        = string
-}
-
-variable "oidc_issuer_url" {
-  description = "EKS OIDC issuer URL (module.eks.oidc_issuer_url) — IRSA trust의 sub/aud 조건에 사용"
+# --- member-service Pod Identity (Cognito 관리 API 호출) ---
+variable "cluster_name" {
+  description = "EKS 클러스터 이름 (module.eks.cluster_name) — member SA Pod Identity 연결용"
   type        = string
 }
 
@@ -52,6 +47,16 @@ variable "member_service_account" {
     namespace = string
     name      = string
   })
+}
+
+# --- 사용자 그룹 (관리자 인가용) ---
+variable "user_groups" {
+  description = "Cognito 사용자 그룹 맵 (key = 그룹명). 사용자가 속한 그룹은 토큰의 cognito:groups 클레임으로 노출되어 API Gateway/ALB 인가나 백엔드 권한 평가에 쓰입니다. precedence·description은 선택입니다"
+  type = map(object({
+    description = optional(string)
+    precedence  = optional(number)
+  }))
+  default = {}
 }
 
 variable "member_ssm_prefix" {

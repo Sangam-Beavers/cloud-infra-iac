@@ -339,32 +339,63 @@ module "cognito" {
 
   deletion_protection = "ACTIVE" # prod는 실수 삭제를 방지하므로 destroy 시 콘솔/CLI로 수동 해제해야 합니다.
 
-  oidc_provider_arn = module.eks.oidc_provider_arn
-  oidc_issuer_url   = module.eks.oidc_issuer_url
+  cluster_name = module.eks.cluster_name
 
   # member 파드 SA입니다. 앱 Deployment의 ServiceAccount와 정확히 일치해야 합니다.
   member_service_account = { namespace = "sb-prod-app-ns", name = "member" }
 
   member_ssm_prefix   = "/sb/prod/member"   # issuer/region/pool-id → ESO 런타임
   frontend_ssm_prefix = "/sb/prod/frontend" # VITE_OIDC_* → Jenkins 빌드 타임
+
+  # 관리자 인가용 그룹 (stage와 동형). prod는 수동 생성분이 없어 apply 시 신규 생성됩니다.
+  user_groups = {
+    admin = {}
+  }
 }
 
-# document-service IRSA입니다 (SQS/S3/Lambda). 대상 자원은 var.document_irsa (external.auto.tfvars) 로 주입합니다.
+# document-service Pod Identity (IRSA→PI 수렴, stage와 동형). SQS/S3/Lambda 권한. 대상 자원은 var.document_irsa (external.auto.tfvars) 로 주입합니다.
 # prod 배포 시 production/external.auto.tfvars에 document_irsa 값을 채웁니다 (미정이면 prod apply 전에 확정).
-module "document_irsa" {
-  source = "../../modules/document-irsa"
+module "document_access" {
+  source = "../../modules/pod-identity"
   count  = var.document_irsa != null ? 1 : 0 # 값 (tfvars) 을 채우기 전에는 생성하지 않습니다.
 
-  name              = "sb-prod-document"
-  oidc_provider_arn = module.eks.oidc_provider_arn
-  oidc_issuer_url   = module.eks.oidc_issuer_url
+  name            = "sb-prod-document"
+  cluster_name    = module.eks.cluster_name
+  namespace       = "sb-prod-app-ns"
+  service_account = "document" # gb-infra document 차트의 serviceAccountName과 일치
 
-  # 앱 Deployment의 serviceAccountName과 글자까지 일치해야 합니다 (gb-infra document 차트: name=document).
-  service_account = { namespace = "sb-prod-app-ns", name = "document" }
-
-  analysis_queue_name   = var.document_irsa.analysis_queue_name
-  document_bucket       = var.document_irsa.document_bucket
-  chatbot_function_name = var.document_irsa.chatbot_function_name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ConsumeAnalysisResultQueue"
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes", "sqs:GetQueueUrl"]
+        Resource = "arn:${data.aws_partition.current.partition}:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.document_irsa.analysis_queue_name}"
+      },
+      {
+        Sid    = "DocumentBucketRead"
+        Effect = "Allow"
+        Action = "s3:GetObject"
+        Resource = [
+          "arn:${data.aws_partition.current.partition}:s3:::${var.document_irsa.document_bucket}/original/*",
+          "arn:${data.aws_partition.current.partition}:s3:::${var.document_irsa.document_bucket}/masked/*",
+        ]
+      },
+      {
+        Sid      = "DocumentBucketWrite"
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.document_irsa.document_bucket}/original/*"
+      },
+      {
+        Sid      = "InvokeChatbot"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = "arn:${data.aws_partition.current.partition}:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${var.document_irsa.chatbot_function_name}"
+      },
+    ]
+  })
 }
 
 # community-service가 gb-community-translator (번역 Lambda) 를 호출하기 위한 IAM 역할입니다. EKS Pod Identity를 씁니다 (stage와 동형).
@@ -383,7 +414,7 @@ module "community_access" {
     Statement = [{
       Sid      = "InvokeCommunityTranslator"
       Effect   = "Allow"
-      Action   = "lambda:InvokeFunctionUrl"
+      Action   = "lambda:InvokeFunction"
       Resource = "arn:${data.aws_partition.current.partition}:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${var.community_translator_function}"
     }]
   })

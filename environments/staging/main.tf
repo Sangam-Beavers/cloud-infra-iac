@@ -337,31 +337,63 @@ module "cognito" {
 
   deletion_protection = "INACTIVE" # stage는 destroy 가능 (prod는 ACTIVE)
 
-  oidc_provider_arn = module.eks.oidc_provider_arn
-  oidc_issuer_url   = module.eks.oidc_issuer_url
+  cluster_name = module.eks.cluster_name
 
   # member 파드 SA입니다. 앱 Deployment의 ServiceAccount와 정확히 일치해야 합니다.
   member_service_account = { namespace = "sb-stage-app-ns", name = "member" }
 
   member_ssm_prefix   = "/sb/stage/member"   # issuer·region·pool-id → ESO 런타임
   frontend_ssm_prefix = "/sb/stage/frontend" # VITE_OIDC_* → Jenkins 빌드 타임
+
+  # 관리자 인가용 그룹. 콘솔 수동 생성분 (admin) 을 import로 흡수합니다. 토큰 cognito:groups 클레임으로 노출됩니다.
+  # precedence·description 미지정 = 현재 그룹 상태와 동일 (import 후 무변경).
+  user_groups = {
+    admin = {}
+  }
 }
 
-# document-service IRSA입니다. member와 같은 패턴으로 우리 EKS OIDC를 동적 참조하며, SQS consume·S3 presign·Lambda 호출 권한을 줍니다.
-# 대상 SQS·S3·Lambda는 모두 동일계정 (이 배포 계정) 이지만 IaC 범위 밖 (app/AI팀 소유) 이라 권한만 부여합니다.
-module "document_irsa" {
-  source = "../../modules/document-irsa"
+# document-service Pod Identity (IRSA→PI 수렴, community와 동형). SQS (분석결과 consume)·S3 (presign PUT/조회)·Lambda (챗봇 Invoke) 권한.
+# 대상 SQS·S3·Lambda는 동일계정이지만 IaC 밖 (app/AI팀 소유) 이라 권한만 부여하며, ARN은 caller identity로 동적 구성합니다 (계정 ID 하드코딩 회피).
+module "document_access" {
+  source = "../../modules/pod-identity"
 
-  name              = "sb-stage-document"
-  oidc_provider_arn = module.eks.oidc_provider_arn
-  oidc_issuer_url   = module.eks.oidc_issuer_url
+  name            = "sb-stage-document"
+  cluster_name    = module.eks.cluster_name
+  namespace       = "sb-stage-app-ns"
+  service_account = "document" # gb-infra document 차트의 serviceAccountName과 일치
 
-  # 앱 Deployment의 serviceAccountName과 글자까지 일치해야 합니다 (gb-infra document 차트: name=document).
-  service_account = { namespace = "sb-stage-app-ns", name = "document" }
-
-  analysis_queue_name   = var.document_irsa.analysis_queue_name
-  document_bucket       = var.document_irsa.document_bucket
-  chatbot_function_name = var.document_irsa.chatbot_function_name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ConsumeAnalysisResultQueue"
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes", "sqs:GetQueueUrl"]
+        Resource = "arn:${data.aws_partition.current.partition}:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.document_irsa.analysis_queue_name}"
+      },
+      {
+        Sid    = "DocumentBucketRead"
+        Effect = "Allow"
+        Action = "s3:GetObject"
+        Resource = [
+          "arn:${data.aws_partition.current.partition}:s3:::${var.document_irsa.document_bucket}/original/*",
+          "arn:${data.aws_partition.current.partition}:s3:::${var.document_irsa.document_bucket}/masked/*",
+        ]
+      },
+      {
+        Sid      = "DocumentBucketWrite"
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.document_irsa.document_bucket}/original/*"
+      },
+      {
+        Sid      = "InvokeChatbot"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = "arn:${data.aws_partition.current.partition}:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${var.document_irsa.chatbot_function_name}"
+      },
+    ]
+  })
 }
 
 # community-service가 gb-community-translator (번역 Lambda, AWS_IAM) 를 호출하기 위한 IAM 역할로, EKS Pod Identity로 SA에 부여합니다.
@@ -375,14 +407,14 @@ module "community_access" {
   namespace       = "sb-stage-app-ns"
   service_account = "community" # gb-infra community 차트의 serviceAccountName과 일치
 
-  # lambda:FunctionUrlAuthType 조건은 identity 정책에 넣지 않습니다. 이 컨텍스트에는 해당 키가 채워지지 않아
-  # implicitDeny가 되기 때문입니다. Resource를 특정 함수 ARN으로 한정하므로 조건 없이도 안전합니다.
+  # 백엔드↔Lambda는 표준 Invoke API로 호출합니다 (Function URL은 EKS에서 환경 의존성으로 403이 나 폐기).
+  # Resource를 특정 함수 ARN으로 한정하므로 조건 없이도 안전합니다. InvokeFunction이 동기·스트리밍을 모두 커버합니다.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Sid      = "InvokeCommunityTranslator"
       Effect   = "Allow"
-      Action   = "lambda:InvokeFunctionUrl"
+      Action   = "lambda:InvokeFunction"
       Resource = "arn:${data.aws_partition.current.partition}:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${var.community_translator_function}"
     }]
   })

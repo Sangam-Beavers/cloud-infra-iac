@@ -1,10 +1,6 @@
 data "aws_region" "current" {}
 data "aws_partition" "current" {}
 
-locals {
-  oidc_provider = replace(var.oidc_issuer_url, "https://", "")
-}
-
 # ---------------------------------------------------------------------------
 # Pre-Token Generation Lambda — custom:public_id를 토큰 클레임에 주입합니다 (V3).
 # ---------------------------------------------------------------------------
@@ -127,6 +123,19 @@ resource "aws_cognito_user_pool_domain" "this" {
 }
 
 # ---------------------------------------------------------------------------
+# User Group — 관리자 인가용입니다. 사용자가 속한 그룹은 토큰의 cognito:groups 클레임으로
+# 노출되어 API Gateway/ALB 인가나 백엔드 권한 평가에 사용됩니다 (콘솔 수동 생성분은 import로 흡수).
+# ---------------------------------------------------------------------------
+resource "aws_cognito_user_group" "this" {
+  for_each = var.user_groups
+
+  name         = each.key
+  user_pool_id = aws_cognito_user_pool.this.id
+  description  = each.value.description
+  precedence   = each.value.precedence
+}
+
+# ---------------------------------------------------------------------------
 # App Client — 프론트 SPA (public, OAuth code + Hosted UI)용입니다. callback은 CloudFront를 가리킵니다.
 # ---------------------------------------------------------------------------
 resource "aws_cognito_user_pool_client" "frontend" {
@@ -170,27 +179,17 @@ resource "aws_cognito_user_pool_client" "frontend" {
 }
 
 # ---------------------------------------------------------------------------
-# member-service IRSA — Cognito 사용자 관리 API (provisioning)용입니다. 액세스 키 없이 SA로 권한을 받습니다.
+# member-service Pod Identity — Cognito 사용자 관리 API (provisioning)용입니다. SA에 권한을 부여하며
+# IRSA와 달리 sts SDK 의존성·OIDC 트러스트가 필요 없습니다 (community/document와 동일 메커니즘으로 수렴).
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "member_assume" {
   statement {
     effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole", "sts:TagSession"]
 
     principals {
-      type        = "Federated"
-      identifiers = [var.oidc_provider_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${local.oidc_provider}:sub"
-      values   = ["system:serviceaccount:${var.member_service_account.namespace}:${var.member_service_account.name}"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "${local.oidc_provider}:aud"
-      values   = ["sts.amazonaws.com"]
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
     }
   }
 }
@@ -198,6 +197,14 @@ data "aws_iam_policy_document" "member_assume" {
 resource "aws_iam_role" "member" {
   name               = "${var.name}-member-cognito"
   assume_role_policy = data.aws_iam_policy_document.member_assume.json
+}
+
+# SA (member) ↔ 역할을 Pod Identity로 연결합니다. SA는 차트가 생성하며 roleArn 어노테이션이 불필요합니다 (이름 기반 바인딩).
+resource "aws_eks_pod_identity_association" "member" {
+  cluster_name    = var.cluster_name
+  namespace       = var.member_service_account.namespace
+  service_account = var.member_service_account.name
+  role_arn        = aws_iam_role.member.arn
 }
 
 resource "aws_iam_role_policy" "member" {

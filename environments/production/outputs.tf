@@ -192,9 +192,9 @@ output "cognito_member_role_arn" {
   value       = module.cognito.member_role_arn
 }
 
-output "document_irsa_role_arn" {
-  description = "document-service IRSA 역할 ARN (var.document_irsa 설정 시; gb-infra document values-prod.yaml serviceAccount.roleArn에 기입)"
-  value       = try(module.document_irsa[0].role_arn, null)
+output "document_role_arn" {
+  description = "document-service Pod Identity 역할 ARN (var.document_irsa 설정 시; PI라 gb-infra document 차트 serviceAccount.roleArn 어노테이션 불필요)"
+  value       = try(module.document_access[0].role_arn, null)
 }
 
 output "eks_admin_role_arn" {
