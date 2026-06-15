@@ -96,7 +96,8 @@ resource "aws_rds_cluster" "this" {
 # 클러스터 파라미터그룹 — server_audit 플러그인으로 audit 로그를 생성합니다 (위 CW exports의 "audit"가 이를 사용).
 resource "aws_rds_cluster_parameter_group" "this" {
   # 패밀리 변경 (엔진 메이저 업그레이드) 시 이름이 함께 바뀌어야 교체할 수 있습니다 (create_before_destroy 동명 충돌 방지).
-  name        = "${var.name}-cluster-${var.parameter_group_family}"
+  # RDS 이름 규칙상 점( . )을 못 쓰므로 family의 점을 제거합니다 (aurora-mysql8.0 → aurora-mysql80).
+  name        = "${var.name}-cluster-${replace(var.parameter_group_family, ".", "")}"
   family      = var.parameter_group_family
   description = "${var.name} aurora-mysql cluster params (server_audit logging)"
 
