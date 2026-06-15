@@ -423,6 +423,21 @@ module "community_access" {
   })
 }
 
+# YACE (CloudWatch exporter) — Aurora/ElastiCache 매니지드 지표를 Prometheus로. 수동 적용분(IAM·VPCe)을 흡수합니다.
+# YACE 차트·대시보드는 gb-infra(monitoring-stack) 소관이고, 여기서는 IAM(Pod Identity) + private 클러스터용 VPC 엔드포인트만 관리합니다.
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  name            = "gb-yace-cloudwatch-read"
+  cluster_name    = module.eks.cluster_name
+  namespace       = "monitoring"
+  service_account = "cloudwatch-exporter" # gb-infra monitoring-stack 차트가 생성
+
+  vpc_id            = module.vpc.vpc_id
+  subnet_ids        = values(module.vpc.mgmt_subnet_ids) # mgmt 격리 구역
+  security_group_id = module.jumphost.endpoints_security_group_id
+}
+
 # 온프렘 Jenkins의 프론트 배포용 IAM User (정적 키) 입니다. SPA 버킷 sync, 프론트 PS 읽기, CloudFront 무효화 권한을 줍니다.
 module "frontend_deploy_iam" {
   source = "../../modules/frontend-deploy-iam"
