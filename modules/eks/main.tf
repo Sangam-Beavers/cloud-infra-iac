@@ -221,11 +221,11 @@ resource "aws_eks_node_group" "this" {
     max_unavailable = 1
   }
 
-  # Cluster Autoscaler/Karpenter 도입 시 아래 lifecycle을 복원해야 합니다
-  # (오토스케일러가 바꾼 desired_size를 Terraform이 되돌리지 않도록).
-  # lifecycle {
-  #   ignore_changes = [scaling_config[0].desired_size]
-  # }
+  # Cluster Autoscaler가 desired_size를 직접 조정하므로, Terraform이 apply 때마다
+  # var.desired_size로 되돌리지 않도록 무시합니다 (min/max는 계속 Terraform이 관리).
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
 
   # 노드 부트스트랩 전에 IAM 권한과 (vpc-cni 모드면) 네트워킹 애드온이 준비되도록 보장합니다.
   # cni = "cilium"이면 이 의존성은 pod-identity-agent만 보장하고, CNI는 apply 이후
@@ -237,6 +237,32 @@ resource "aws_eks_node_group" "this" {
 
   tags = {
     Name = "${var.name}-default"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Cluster Autoscaler 오토디스커버리 태그.
+# CA는 --node-group-auto-discovery로 이 두 태그가 함께 붙은 ASG만 후보로 잡습니다. 관리형 노드
+# 그룹의 tags나 시작 템플릿 tag_specifications는 ASG 자체엔 전파되지 않으므로 (EKS가 만든 ASG에)
+# 직접 태그를 답니다. 키의 클러스터명은 곧 var.name이며, IRSA 정책의 쓰기 조건 (owned)과 짝을 이룹니다.
+# ---------------------------------------------------------------------------
+resource "aws_autoscaling_group_tag" "ca_enabled" {
+  autoscaling_group_name = aws_eks_node_group.this.resources[0].autoscaling_groups[0].name
+
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/enabled"
+    value               = "true"
+    propagate_at_launch = false
+  }
+}
+
+resource "aws_autoscaling_group_tag" "ca_owned" {
+  autoscaling_group_name = aws_eks_node_group.this.resources[0].autoscaling_groups[0].name
+
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/${var.name}"
+    value               = "owned"
+    propagate_at_launch = false
   }
 }
 

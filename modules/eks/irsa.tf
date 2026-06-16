@@ -9,6 +9,7 @@ data "aws_partition" "current" {}
 # 클러스터 내 ServiceAccount가 AWS API를 호출할 IAM 역할을 발급합니다.
 #   - aws-load-balancer-controller: ALB/Target Group 생성·관리
 #   - external-secrets:             Secrets Manager 읽기 + 환경 CMK decrypt
+#   - cluster-autoscaler:           노드 그룹 ASG 용량 조정 (스케일 업/다운)
 # ---------------------------------------------------------------------------
 
 locals {
@@ -116,6 +117,80 @@ resource "aws_iam_role_policy" "eso" {
         Effect   = "Allow"
         Action   = ["kms:Decrypt", "kms:DescribeKey"]
         Resource = var.kms_key_arn
+      }
+    ]
+  })
+}
+
+# ---- Cluster Autoscaler ----
+
+data "aws_iam_policy_document" "cluster_autoscaler_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.this.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_provider}:sub"
+      values   = ["system:serviceaccount:kube-system:cluster-autoscaler"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_provider}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "cluster_autoscaler" {
+  name               = "${var.name}-cluster-autoscaler"
+  assume_role_policy = data.aws_iam_policy_document.cluster_autoscaler_assume.json
+}
+
+resource "aws_iam_role_policy" "cluster_autoscaler" {
+  name = "${var.name}-cluster-autoscaler"
+  role = aws_iam_role.cluster_autoscaler.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # ASG·인스턴스·시작 템플릿 조회는 전체 대상으로 필요합니다 (오토디스커버리가 태그로 후보 ASG를 추림).
+        Sid    = "DescribeForDiscovery"
+        Effect = "Allow"
+        Action = [
+          "autoscaling:DescribeAutoScalingGroups",
+          "autoscaling:DescribeAutoScalingInstances",
+          "autoscaling:DescribeLaunchConfigurations",
+          "autoscaling:DescribeScalingActivities",
+          "autoscaling:DescribeTags",
+          "ec2:DescribeImages",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeLaunchTemplateVersions",
+          "ec2:GetInstanceTypesFromInstanceRequirements",
+          "eks:DescribeNodegroup"
+        ]
+        Resource = "*"
+      },
+      {
+        # 실제 용량 변경 (desired 조정·노드 종료)은 이 클러스터 소유 태그가 붙은 ASG로만 제한합니다 — 환경 격리.
+        Sid    = "MutateOwnedAsg"
+        Effect = "Allow"
+        Action = [
+          "autoscaling:SetDesiredCapacity",
+          "autoscaling:TerminateInstanceInAutoScalingGroup"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/k8s.io/cluster-autoscaler/${var.name}" = "owned"
+          }
+        }
       }
     ]
   })

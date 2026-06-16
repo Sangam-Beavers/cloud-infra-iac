@@ -8,8 +8,10 @@
 # (파드가 VPC IP를 받아 ALB target-type=ip 로 직접 연동). 비밀은 AWS Secrets Manager + ESO 로 관리합니다.
 #
 # 사용법: ./install-k8s-stack.sh <prod|stage> [phase] [profile]
-#   phase: cilium | alb | eso | ns | harbor | kafka | tgb | all (기본 all). ns=ArgoCD 배포 네임스페이스
-#          사전 생성, harbor=노드 사내 CA 신뢰 (DaemonSet) + harbor-dockercfg (ExternalSecret),
+#   phase: cilium | alb | eso | metrics | ca | ns | harbor | kafka | tgb | all (기본 all). metrics=metrics-server
+#          (HPA용 리소스 메트릭 API), ca=Cluster Autoscaler (노드 ASG 오토스케일, IRSA·오토디스커버리),
+#          ns=ArgoCD 배포 네임스페이스 사전 생성,
+#          harbor=노드 사내 CA 신뢰 (DaemonSet) + harbor-dockercfg (ExternalSecret),
 #          kafka=Strimzi 단일 브로커 (gb-kafka) + 토픽 + bootstrap 을 Parameter Store 에 게시,
 #          tgb=내부 ALB target group 에 백엔드 파드 등록 (TargetGroupBinding, PS /sb/{env}/tgb/* 참조)
 # 전제: 해당 환경 apply 완료 (cni=cilium), terraform output 사용 가능
@@ -40,6 +42,7 @@ HOST=${ENDPOINT#https://}
 VPC_ID=$(cd "$TF_DIR" && terraform output -raw vpc_id)
 ALB_ROLE_ARN=$(cd "$TF_DIR" && terraform output -raw alb_controller_role_arn 2>/dev/null || echo "")
 ESO_ROLE_ARN=$(cd "$TF_DIR" && terraform output -raw eso_role_arn 2>/dev/null || echo "")
+CA_ROLE_ARN=$(cd "$TF_DIR" && terraform output -raw cluster_autoscaler_role_arn 2>/dev/null || echo "")
 
 JUMP=$(aws ec2 describe-instances --profile "$PROFILE" --region $REGION \
   --filters "Name=tag:Name,Values=sb-${ENV}-jump" "Name=instance-state-name,Values=running" \
@@ -149,6 +152,57 @@ install_eso() {
   # Manager 에서, 비밀이 아닌 인프라 동적값은 Parameter Store 에서 가져옵니다. 같은 ESO ServiceAccount (IRSA)를 씁니다.
   REGION="$REGION" envsubst '${REGION}' < "$MF/cluster-secret-stores.yaml" | kubectl apply -f -
   echo "[✔] ESO + ClusterSecretStore(SecretsManager·ParameterStore) 설치 완료"
+}
+
+install_metrics_server() {
+  echo "=== metrics-server 설치 (HPA용 리소스 메트릭 API) ==="
+  # HPA가 CPU/메모리를 읽으려면 metrics.k8s.io API가 필요합니다. EKS 기본 애드온이 아니라 별도 설치합니다.
+  # EKS 노드(AL2023)는 cluster CA로 서명된 kubelet serving 인증서를 쓰므로 기본(보안) 설정으로 동작합니다
+  # (--kubelet-insecure-tls 불필요). Cilium ENI 네이티브 라우팅에서 파드→노드:10250 스크랩도 정상입니다.
+  helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server >/dev/null 2>&1 || true
+  helm repo update metrics-server >/dev/null
+  helm upgrade --install metrics-server metrics-server/metrics-server \
+    --version 3.13.1 \
+    --namespace kube-system \
+    --wait --timeout 5m
+  # 메트릭 파이프라인이 실제로 살아있는지 (APIService Available + top 응답) 확인합니다. 스크랩 경로가
+  # 막히면 HPA가 cpu:<unknown>으로 남아 무용지물이라, 여기서 일찍 실패시키는 편이 낫습니다.
+  echo "[*] metrics.k8s.io API 준비 대기..."
+  for i in $(seq 1 30); do kubectl top nodes >/dev/null 2>&1 && break; sleep 4; done
+  kubectl top nodes >/dev/null 2>&1 || { echo "ERROR: metrics API 미응답 — metrics-server 파드 로그 확인 (kubelet 스크랩/인증서 문제 가능)"; exit 1; }
+  echo "[✔] metrics-server 설치 완료 (kubectl top·HPA 메트릭 활성화)"
+}
+
+install_cluster_autoscaler() {
+  echo "=== Cluster Autoscaler 설치 (오토디스커버리, IRSA) ==="
+  [ -n "$CA_ROLE_ARN" ] || { echo "ERROR: cluster_autoscaler_role_arn output 없음 (apply 필요)"; exit 1; }
+  # CA 이미지의 마이너 버전은 클러스터 컨트롤플레인 K8s 마이너와 정확히 맞춰야 합니다 (스큐 시 동작 불보장).
+  # cluster_version=null(AWS 기본 최신)이라 고정값이 없으므로, 실행 중인 API 서버에서 감지해 핀합니다.
+  local k8s_minor ca_image_tag
+  k8s_minor=$(kubectl version -o json | jq -r '.serverVersion.minor' | tr -dc '0-9')
+  [ -n "$k8s_minor" ] || { echo "ERROR: 클러스터 K8s 마이너 버전 감지 실패"; exit 1; }
+  ca_image_tag="v1.${k8s_minor}.0"
+  echo "[*] 클러스터 K8s 1.${k8s_minor} 감지 → CA 이미지 ${ca_image_tag} 로 핀"
+  # IRSA: SA를 만들어 역할 ARN을 어노테이트한 뒤, 차트가 그 SA를 쓰게 합니다 (ALB/ESO와 동일 패턴).
+  kubectl -n kube-system create serviceaccount cluster-autoscaler \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n kube-system annotate serviceaccount cluster-autoscaler \
+    eks.amazonaws.com/role-arn="$CA_ROLE_ARN" --overwrite
+  helm repo add autoscaler https://kubernetes.github.io/autoscaler >/dev/null 2>&1 || true
+  helm repo update autoscaler >/dev/null
+  # 차트 버전은 고정하고 이미지 태그만 클러스터 버전에 맞춰 주입합니다. 노드 그룹 ASG는 terraform이
+  # 단 오토디스커버리 태그(k8s.io/cluster-autoscaler/enabled, .../${CLUSTER}=owned)로 찾습니다.
+  # 스케일다운은 CA 기본값(사용률 50% 미만 10분 지속 시 축소, 스케일업 후 10분 대기)을 그대로 씁니다.
+  helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
+    --version 9.57.0 \
+    --namespace kube-system \
+    --set autoDiscovery.clusterName="$CLUSTER" \
+    --set awsRegion="$REGION" \
+    --set image.tag="$ca_image_tag" \
+    --set rbac.serviceAccount.create=false \
+    --set rbac.serviceAccount.name=cluster-autoscaler \
+    --wait --timeout 5m
+  echo "[✔] Cluster Autoscaler 설치 완료 (이미지 ${ca_image_tag}, min/max는 노드 그룹 scaling_config 준수)"
 }
 
 ensure_app_namespaces() {
@@ -284,15 +338,17 @@ install_tgb() {
 }
 
 case "$PHASE" in
-  cilium) install_cilium ;;
-  alb)    install_alb ;;
-  eso)    install_eso ;;
-  ns)     ensure_app_namespaces ;;
-  harbor) install_harbor ;;
-  kafka)  install_kafka ;;
-  tgb)    install_tgb ;;
-  all)    install_cilium; install_alb; install_eso; ensure_app_namespaces; install_harbor; install_kafka; install_tgb ;;
-  *) echo "ERROR: phase는 cilium|alb|eso|ns|harbor|kafka|tgb|all"; exit 1 ;;
+  cilium)  install_cilium ;;
+  alb)     install_alb ;;
+  eso)     install_eso ;;
+  metrics) install_metrics_server ;;
+  ca)      install_cluster_autoscaler ;;
+  ns)      ensure_app_namespaces ;;
+  harbor)  install_harbor ;;
+  kafka)   install_kafka ;;
+  tgb)     install_tgb ;;
+  all)     install_cilium; install_alb; install_eso; install_metrics_server; install_cluster_autoscaler; ensure_app_namespaces; install_harbor; install_kafka; install_tgb ;;
+  *) echo "ERROR: phase는 cilium|alb|eso|metrics|ca|ns|harbor|kafka|tgb|all"; exit 1 ;;
 esac
 
 echo "✔ ${ENV}: k8s 스택 (${PHASE}) 설치 완료"

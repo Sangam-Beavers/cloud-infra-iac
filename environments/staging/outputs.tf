@@ -93,6 +93,11 @@ output "eso_role_arn" {
   value       = module.eks.eso_role_arn
 }
 
+output "cluster_autoscaler_role_arn" {
+  description = "Cluster Autoscaler IRSA 역할 ARN"
+  value       = module.eks.cluster_autoscaler_role_arn
+}
+
 output "api_origin_url" {
   description = "다음 단계 CloudFront에 등록할 origin URL (HTTP API)"
   value       = module.api_gateway.api_origin_url
