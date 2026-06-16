@@ -134,10 +134,10 @@ destroy-stage: ## staging 전체 삭제 (확인 입력 필요)
 	cd $(STAGE) && $(TF_INIT) >/dev/null && terraform destroy
 
 # ---------- k8s 스택 설치 (Cilium / ALB / ESO — apply 직후 CNI 공백 닫기) ----------
-k8s-stack-prod: ## prod: Cilium + ALB Controller + ESO + metrics-server + CA 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|metrics|ca|ns|harbor|kafka|tgb|all)
+k8s-stack-prod: ## prod: Cilium + ALB Controller + ESO + metrics-server + CA + Spegel 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|metrics|ca|spegel|ns|harbor|kafka|tgb|all)
 	./scripts/install-k8s-stack.sh prod $(PHASE)
 
-k8s-stack-stage: ## stage: Cilium + ALB Controller + ESO + metrics-server + CA 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|metrics|ca|ns|harbor|kafka|tgb|all)
+k8s-stack-stage: ## stage: Cilium + ALB Controller + ESO + metrics-server + CA + Spegel 설치 (apply 후 — phase 인자: PHASE=cilium|alb|eso|metrics|ca|spegel|ns|harbor|kafka|tgb|all)
 	./scripts/install-k8s-stack.sh stage $(PHASE)
 
 # ---------- 부트스트랩 (apply 완료 후 실행) ----------
@@ -254,7 +254,7 @@ up-all: ## 전체 인프라 생성: app→환경 병렬 apply→k8s 스택→부
 	@( cd $(PROD) && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve > /tmp/up-prod.log 2>&1 && echo "[prod] apply 완료" || { echo "[prod] 실패 — /tmp/up-prod.log 확인"; exit 1; } ) & P1=$$!; \
 	( cd $(STAGE) && $(TF_INIT) > /dev/null && terraform apply -input=false -auto-approve > /tmp/up-stage.log 2>&1 && echo "[stage] apply 완료" || { echo "[stage] 실패 — /tmp/up-stage.log 확인"; exit 1; } ) & P2=$$!; \
 	wait $$P1 || FAIL=1; wait $$P2 || FAIL=1; [ -z "$$FAIL" ] || { echo "✗ 병렬 단계 실패 — 중단 (로그 확인)"; exit 1; }
-	@echo "--- k8s 스택 설치 (Cilium→ALB→ESO→metrics→CA) — cni=cilium이라 apply 직후 CNI 공백을 곧바로 닫습니다. SSM 터널 포트 공유로 prod→stage 직렬 ---"
+	@echo "--- k8s 스택 설치 (Cilium→ALB→ESO→metrics→CA→Spegel) — cni=cilium이라 apply 직후 CNI 공백을 곧바로 닫습니다. SSM 터널 포트 공유로 prod→stage 직렬 ---"
 	$(MAKE) k8s-stack-prod PHASE=all
 	$(MAKE) k8s-stack-stage PHASE=all
 	$(MAKE) bootstrap-prod bootstrap-stage

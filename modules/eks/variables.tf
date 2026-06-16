@@ -144,3 +144,16 @@ variable "cluster_admin_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "harbor_ca_pem" {
+  description = "사내 Harbor의 CA 인증서 (PEM). 비우면 미설정 — 채우면 노드 user_data로 부팅 시점에 신뢰스토어에 심어 harbor.sb.fisa TLS를 처음부터 신뢰하게 합니다 (Cluster Autoscaler가 띄운 새 노드의 ImagePull 윈도우 제거). 비밀이 아닌 공개 인증서지만 plan/로그를 깔끔히 하려고 sensitive 처리합니다"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "spegel_image" {
+  description = "Spegel (노드 간 이미지 P2P 미러) 이미지. 노드 user_data가 부팅 시 미리 pull해 새 노드의 'Spegel 미준비' 블라인드 윈도우를 없앱니다 (CA가 띄운 새 노드에서 Spegel 자기 이미지 콜드풀이 버스트 시 수 분 걸려 그동안 앱 파드가 Harbor (VPN)로 직행하던 문제). install-k8s-stack.sh의 Spegel 차트 버전 (현재 0.7.1)과 동일 다이제스트로 핀 — 차트 업그레이드 시 함께 갱신할 것."
+  type        = string
+  default     = "ghcr.io/spegel-org/spegel@sha256:bfb81b01f3cb0512044f7af2f8dd4aae9163ca36a35253a2d91c30c1b5dcf626"
+}

@@ -163,6 +163,13 @@ resource "aws_iam_role_policy_attachment" "node" {
 resource "aws_launch_template" "node" {
   name_prefix = "${var.name}-node-"
 
+  # 사내 Harbor CA를 부팅 시점에 신뢰스토어에 심습니다 (harbor_ca_pem이 있을 때만). 관리형 노드그룹은
+  # 이 MIME 뒤에 자체 nodeadm 부트스트랩을 덧붙입니다. 미설정 시 null이라 EKS 기본 부트스트랩만 씁니다.
+  user_data = var.harbor_ca_pem != "" ? base64encode(templatefile("${path.module}/node-userdata.mime.tpl", {
+    harbor_ca_pem = var.harbor_ca_pem
+    spegel_image  = var.spegel_image
+  })) : null
+
   block_device_mappings {
     device_name = "/dev/xvda"
     ebs {

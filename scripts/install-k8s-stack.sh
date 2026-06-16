@@ -8,10 +8,11 @@
 # (파드가 VPC IP를 받아 ALB target-type=ip 로 직접 연동). 비밀은 AWS Secrets Manager + ESO 로 관리합니다.
 #
 # 사용법: ./install-k8s-stack.sh <prod|stage> [phase] [profile]
-#   phase: cilium | alb | eso | metrics | ca | ns | harbor | kafka | tgb | all (기본 all). metrics=metrics-server
+#   phase: cilium | alb | eso | metrics | ca | spegel | ns | harbor | kafka | tgb | all (기본 all). metrics=metrics-server
 #          (HPA용 리소스 메트릭 API), ca=Cluster Autoscaler (노드 ASG 오토스케일, IRSA·오토디스커버리),
+#          spegel=노드 간 이미지 P2P 미러 (반복 pull의 VPN 경로 제거, harbor.sb.fisa 대상),
 #          ns=ArgoCD 배포 네임스페이스 사전 생성,
-#          harbor=노드 사내 CA 신뢰 (DaemonSet) + harbor-dockercfg (ExternalSecret),
+#          harbor=노드 사내 CA 신뢰 (harbor-ca-trust DaemonSet) + harbor-dockercfg pull secret (ExternalSecret),
 #          kafka=Strimzi 단일 브로커 (gb-kafka) + 토픽 + bootstrap 을 Parameter Store 에 게시,
 #          tgb=내부 ALB target group 에 백엔드 파드 등록 (TargetGroupBinding, PS /sb/{env}/tgb/* 참조)
 # 전제: 해당 환경 apply 완료 (cni=cilium), terraform output 사용 가능
@@ -85,6 +86,9 @@ install_cilium() {
   kubectl -n kube-system delete daemonset kube-proxy --ignore-not-found
   helm repo add cilium https://helm.cilium.io >/dev/null 2>&1 || true
   helm repo update cilium >/dev/null
+  # hostPort 는 kubeProxyReplacement=true 에 포함되어 자동 활성화됩니다 (cilium-dbg status: HostPort Enabled).
+  # 별도 hostPort.enabled 값은 이 차트 (1.18)에 없으므로 주지 않습니다. Spegel 미러 (노드 hostPort :29020)는
+  # 이 위에서 동작하며, 새 노드/재시작 시 Spegel 파드가 recreate 되어야 hostPort 가 프로그래밍됩니다.
   helm upgrade --install cilium cilium/cilium --version 1.18.9 \
     --namespace kube-system \
     --set ipam.mode=eni \
@@ -205,6 +209,24 @@ install_cluster_autoscaler() {
   echo "[✔] Cluster Autoscaler 설치 완료 (이미지 ${ca_image_tag}, min/max는 노드 그룹 scaling_config 준수)"
 }
 
+install_spegel() {
+  echo "=== Spegel 설치 (노드 간 이미지 P2P 미러 — 반복 pull 의 VPN 경로 제거) ==="
+  # 전제 (둘 다 노드 user_data 로 충족): containerd registry config_path=/etc/containerd/certs.d +
+  # discard_unpacked_layers=false. harbor.sb.fisa 만 미러 대상으로 지정합니다 (public 레지스트리 미개입).
+  # 한 노드가 받은 이미지 레이어를 다른 노드가 peer 로 가져가고, 아무도 없으면 upstream (Harbor)로 자동 fallback 합니다.
+  # service.registry.hostPort: 차트 기본 30020 은 Cilium NodePort 범위 (30000-32767) 안이라, Cilium 이
+  #   "hostPort colliding with NodePort range. Ignoring" 로 바인딩을 거부합니다 → containerd 가 미러 (:30020)에
+  #   못 붙어 모든 pull 이 Harbor (VPN)로 폴백, Spegel 서빙 0건이 됩니다 (2026-06-16 확인). 범위 밖 (<30000)으로 옮겨
+  #   hostPort 가 실제로 바인딩되어야 P2P 가 동작합니다. (NodePort 30021 은 그대로 둬도 무방)
+  helm upgrade --install spegel oci://ghcr.io/spegel-org/helm-charts/spegel \
+    --version 0.7.1 \
+    --namespace spegel --create-namespace \
+    --set "spegel.mirroredRegistries[0]=https://harbor.sb.fisa" \
+    --set "service.registry.hostPort=29020" \
+    --wait --timeout 5m
+  echo "[✔] Spegel 설치 완료 (DaemonSet, 미러 대상: harbor.sb.fisa)"
+}
+
 ensure_app_namespaces() {
   # 온프렘 ArgoCD 는 네임스페이스 한정 Edit 으로 접근합니다. 한정 스코프로는 네임스페이스를
   # '생성'할 수 없으므로 (cluster-scoped), 배포 대상 네임스페이스를 미리 만들어 둡니다 (멱등).
@@ -230,21 +252,27 @@ ensure_app_namespaces() {
 }
 
 install_harbor() {
-  # 온프렘 Harbor 에서 이미지를 pull 하려면 두 가지가 필요합니다 (aa6f6b6 이 경로/DNS/prep 까지만 하고
-  # 노드 측 설정으로 남겨둔 부분). ① 노드 containerd 가 사내 CA 로 서명된 Harbor TLS 를 신뢰하고,
-  # ② robot 자격증명으로 만든 dockerconfigjson pull secret 이 필요합니다. 둘 다 멱등합니다.
-  echo "=== Harbor pull 활성화 (노드 CA 신뢰 DaemonSet + harbor-dockercfg ExternalSecret) ==="
-  local ca_file="secrets/sb-local-ca.crt" env_file="secrets/sb.harbor.env"
-  [ -f "$ca_file" ]  || { echo "ERROR: $ca_file 없음 (사내 로컬 CA prep 필요)"; exit 1; }
+  # 온프렘 Harbor 에서 이미지를 pull 하려면 두 가지가 필요합니다. ① 노드 containerd 가 사내 CA 로 서명된
+  # Harbor TLS 를 신뢰하고, ② robot 자격증명으로 만든 dockerconfigjson pull secret 이 필요합니다.
+
+  # ① CA 신뢰: harbor-ca ConfigMap (=secrets/sb-local-ca.crt) + harbor-ca-trust DaemonSet 이 노드 containerd 에
+  #   사내 CA 를 심고 containerd 를 '확정' 재시작합니다. node user_data 도 anchor 를 best-effort 로 쓰지만, 부팅 시점
+  #   조건부 재시작 레이스로 fresh 노드에서 신뢰가 안 서는 경우가 있어 (2026-06-16 stage 전체 ImagePullBackOff 장애),
+  #   신뢰의 '보증'은 이 DaemonSet 이 집니다 (user_data 단독 의존에서 되돌림).
+  echo "=== Harbor CA 신뢰 (harbor-ca ConfigMap + harbor-ca-trust DaemonSet) ==="
+  local ca_file="secrets/sb-local-ca.crt"
+  [ -f "$ca_file" ] || { echo "ERROR: $ca_file 없음 (Harbor CA 인증서 필요)"; exit 1; }
+  kubectl create configmap harbor-ca -n kube-system --from-file=sb-local-ca.crt="$ca_file" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f "$MF/harbor-ca-daemonset.yaml"
+  kubectl rollout status ds/harbor-ca-trust -n kube-system --timeout=180s || true
+
+  # ② robot 자격증명 → SM → ExternalSecret 으로 harbor-dockercfg pull secret 생성.
+  echo "=== Harbor pull secret (harbor-dockercfg ExternalSecret) ==="
+  local env_file="secrets/sb.harbor.env"
   [ -f "$env_file" ] || { echo "ERROR: $env_file 없음 (Harbor robot 자격증명 prep 필요)"; exit 1; }
 
-  # --- ① 노드 사내 CA 신뢰 (Harbor TLS x509 해소) — 상세는 매니페스트 헤더 참조 ---
-  # CA 를 ConfigMap harbor-ca 로 주입하고, DaemonSet 이 노드 시스템 신뢰스토어에 넣어 containerd 가 신뢰하게 합니다.
-  kubectl -n kube-system create configmap harbor-ca \
-    --from-file=sb-local-ca.crt="$ca_file" --dry-run=client -o yaml | kubectl apply -f -
-  kubectl apply -f "$MF/harbor-ca-daemonset.yaml"
-
-  # --- ② Harbor robot 자격증명 → SM 등록 → ExternalSecret 으로 harbor-dockercfg 생성 ---
+  # --- Harbor robot 자격증명 → SM 등록 → ExternalSecret 으로 harbor-dockercfg 생성 ---
   # 파일을 source 하지 않습니다. NAME 에 '$'·'+' 가 포함되면 셸 확장 사고가 날 수 있어 cut 으로 안전하게 추출합니다.
   local hname hsecret hhost
   hname=$(grep -E '^NAME='   "$env_file" | head -1 | cut -d= -f2-)
@@ -343,12 +371,13 @@ case "$PHASE" in
   eso)     install_eso ;;
   metrics) install_metrics_server ;;
   ca)      install_cluster_autoscaler ;;
+  spegel)  install_spegel ;;
   ns)      ensure_app_namespaces ;;
   harbor)  install_harbor ;;
   kafka)   install_kafka ;;
   tgb)     install_tgb ;;
-  all)     install_cilium; install_alb; install_eso; install_metrics_server; install_cluster_autoscaler; ensure_app_namespaces; install_harbor; install_kafka; install_tgb ;;
-  *) echo "ERROR: phase는 cilium|alb|eso|metrics|ca|ns|harbor|kafka|tgb|all"; exit 1 ;;
+  all)     install_cilium; install_alb; install_eso; install_metrics_server; install_cluster_autoscaler; install_spegel; ensure_app_namespaces; install_harbor; install_kafka; install_tgb ;;
+  *) echo "ERROR: phase는 cilium|alb|eso|metrics|ca|spegel|ns|harbor|kafka|tgb|all"; exit 1 ;;
 esac
 
 echo "✔ ${ENV}: k8s 스택 (${PHASE}) 설치 완료"

@@ -205,6 +205,9 @@ module "eks" {
   min_size = var.eks_config.min_size
   max_size = var.eks_config.max_size
 
+  # 사내 Harbor CA를 노드 부팅 시점에 신뢰스토어에 심습니다 (CA가 증설한 새 노드의 pull-before-trust 윈도우 제거). harbor 연동 시에만.
+  harbor_ca_pem = local.harbor_enabled && fileexists("${path.module}/../../secrets/sb-local-ca.crt") ? file("${path.module}/../../secrets/sb-local-ca.crt") : ""
+
   # 노드 EC2도 myApplications 비용·인벤토리에 포함시킵니다.
   instance_extra_tags = { awsApplication = local.application_arn }
 }
